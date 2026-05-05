@@ -25,6 +25,8 @@ const SECONDS_PER_DAY = 86_400;
  * 本质上 volatility 的单位是 "per-minute"。
  */
 const VOLATILITY_UNIT_S = 60;
+/** 未追踪事实只表达“需要重新验证”，不能随事实数量把全局 P2 永久垫高。 */
+const UNTRACKED_MEMORY_TOTAL_CAP = 3.0;
 
 export function p2InformationPressure(
   G: WorldModel,
@@ -33,6 +35,8 @@ export function p2InformationPressure(
   d: number = -0.5,
 ): PressureResult {
   const contributions: Record<string, number> = {};
+
+  const untrackedIds: string[] = [];
 
   for (const iid of G.getEntitiesByType("fact")) {
     const attrs = G.getFact(iid);
@@ -63,8 +67,20 @@ export function p2InformationPressure(
     const R = (1 + gapDays / (9 * stability)) ** d;
 
     const memoryTerm = importance * (1.0 - R);
+    if (attrs.tracked) {
+      contributions[iid] = memoryTerm + stalenessTerm;
+    } else {
+      contributions[iid] = memoryTerm;
+      if (memoryTerm > 0) untrackedIds.push(iid);
+    }
+  }
 
-    contributions[iid] = memoryTerm + stalenessTerm;
+  const untrackedTotal = untrackedIds.reduce((sum, id) => sum + (contributions[id] ?? 0), 0);
+  if (untrackedTotal > UNTRACKED_MEMORY_TOTAL_CAP) {
+    const scale = UNTRACKED_MEMORY_TOTAL_CAP / untrackedTotal;
+    for (const id of untrackedIds) {
+      contributions[id] *= scale;
+    }
   }
 
   const total = Object.values(contributions).reduce((a, b) => a + b, 0);

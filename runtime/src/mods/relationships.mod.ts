@@ -183,6 +183,7 @@ export function buildSocialPanorama(
   contactProfiles: Record<string, ContactProfile>,
   groupProfiles: Record<string, GroupProfile>,
   nowMs: number,
+  targetWhitelist: ReadonlySet<string> | null = null,
 ): PromptLine[] {
   if (!G.has(ALICE_SELF)) return [];
 
@@ -207,6 +208,9 @@ export function buildSocialPanorama(
     const tier = attrs.tier ?? 150;
     if (tier > PANORAMA_MAX_TIER) continue;
 
+    const privateCh = ensureChannelId(cid) ?? cid;
+    if (targetWhitelist && !targetWhitelist.has(privateCh)) continue;
+
     const name = safeDisplayName(G, cid);
     const profile = contactProfiles[cid];
 
@@ -221,7 +225,6 @@ export function buildSocialPanorama(
         : (profile?.interests ?? []).slice(0, PANORAMA_MAX_INTERESTS);
 
     const lastActiveMs = attrs.last_active_ms ?? 0;
-    const privateCh = ensureChannelId(cid) ?? cid;
     const lastSharedToMs = G.has(privateCh)
       ? Number(G.getDynamic(privateCh, "last_shared_ms") ?? 0)
       : 0;
@@ -266,6 +269,7 @@ export function buildSocialPanorama(
 
   for (const chId of joinedChannels) {
     if (!G.has(chId) || G.getNodeType(chId) !== "channel") continue;
+    if (targetWhitelist && !targetWhitelist.has(chId)) continue;
     const chAttrs = G.getChannel(chId);
     const chatType = chAttrs.chat_type ?? "unknown";
     if (chatType !== "group" && chatType !== "supergroup") continue;
@@ -1573,6 +1577,7 @@ export const relationshipsMod = createMod<RelationshipsState>("relationships", {
         ctx.state.contactProfiles,
         ctx.state.groupProfiles ?? {},
         ctx.nowMs,
+        ctx.targetWhitelist ?? null,
       );
       if (panorama.length > 0) {
         items.push(section("social-panorama", panorama, "People you might share with", 24, 65));

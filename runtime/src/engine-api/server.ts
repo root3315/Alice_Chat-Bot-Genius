@@ -56,6 +56,8 @@ export interface EngineApiDeps {
   registry?: Registry;
   /** true = strict（无 header / 未知 skill → 403），false/undefined = lenient。 */
   strictCapabilities?: boolean;
+  /** Optional target allowlist for LLM-facing target resolution. */
+  targetWhitelist?: ReadonlySet<string> | null;
   /** Neutral IM transport adapters keyed by platform. */
   transportAdapters?: Record<string, TransportAdapter>;
   /** Telegram 消息转发回调（irc forward: 跨聊天转发 + 可选评论）。 */

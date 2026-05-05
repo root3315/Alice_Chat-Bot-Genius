@@ -187,7 +187,11 @@ async function main() {
   // 5. 初始化运行时组件
   // Mod 系统：加载所有 Mods → 创建 Dispatcher
   const mods = loadAllMods();
-  const dispatcher = createAliceDispatcher({ graph: G, mods });
+  const dispatcher = createAliceDispatcher({
+    graph: G,
+    mods,
+    targetWhitelist: config.focusWhitelist,
+  });
   log.info("Mod system initialized", {
     mods: mods.map((m) => m.meta.name),
     instructions: dispatcher.getInstructionNames(),
@@ -480,6 +484,7 @@ async function main() {
       youtubeApiKey: config.youtubeApiKey ?? "",
     },
     G,
+    targetWhitelist: config.focusWhitelist,
     getTick: () => clock.tick,
     transportAdapters: config.qqOneBotApiBaseUrl
       ? {

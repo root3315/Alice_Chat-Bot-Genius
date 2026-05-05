@@ -13,6 +13,13 @@ const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   ]),
 );
 
+const AxCotVariantSchema = z.enum([
+  "baseline",
+  "role_immersion",
+  "pure_analysis",
+  "alice_safe_inner_hint",
+]);
+
 export const AxOptimizerArtifactSchema = z.object({
   schemaVersion: z.literal(1),
   adr: z.literal("ADR-263"),
@@ -172,6 +179,104 @@ export type AxGroupReceptionCalibrationReport = z.infer<
   typeof AxGroupReceptionCalibrationReportSchema
 >;
 
+export const AxCotMarkerAblationReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  adr: z.literal("ADR-269"),
+  task: z.literal("deepseek_cot_marker_ablation"),
+  generatedAt: z.string().datetime(),
+  provider: z.object({
+    name: z.string(),
+    model: z.string(),
+    baseUrl: z.string(),
+  }),
+  source: z.object({
+    scenarioIds: z.array(z.string()).min(1),
+    filterPrefix: z.string().nullable(),
+    filterTags: z.array(z.string()),
+    runs: z.number().int().positive(),
+  }),
+  variants: z.array(AxCotVariantSchema).min(1),
+  summary: z.object({
+    bestVariant: AxCotVariantSchema.nullable(),
+    baselineAverage: z.number(),
+    variantAverages: z.record(z.number()),
+    failures: z.number().int().nonnegative(),
+    structureRiskCount: z.number().int().nonnegative(),
+    thinkLeakCount: z.number().int().nonnegative(),
+    recommendation: z.enum(["reject", "needs_review", "promote_candidate"]),
+  }),
+  rows: z.array(
+    z.object({
+      scenarioId: z.string(),
+      variant: AxCotVariantSchema,
+      run: z.number().int().nonnegative(),
+      promptSuffix: z.string(),
+      output: z.string(),
+      judge: z.object({
+        socialIntent: z.enum(["engage", "silence", "defer"]),
+        score: z.number().min(0).max(1),
+        roleplayFit: z.number().min(0).max(1),
+        boundaryScore: z.number().min(0).max(1),
+        structureRisk: z.enum(["low", "medium", "high"]),
+        thinkLeak: z.boolean(),
+        promotionVerdict: z.enum(["reject", "needs_review", "promote_candidate"]),
+        reason: z.string(),
+      }),
+      error: z.string().optional(),
+    }),
+  ),
+});
+
+export type AxCotMarkerAblationReport = z.infer<typeof AxCotMarkerAblationReportSchema>;
+
+export const AxCotClassicPairwiseReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  adr: z.literal("ADR-269"),
+  task: z.literal("deepseek_cot_classic_pairwise"),
+  generatedAt: z.string().datetime(),
+  provider: z.object({
+    name: z.string(),
+    model: z.string(),
+    baseUrl: z.string(),
+  }),
+  source: z.object({
+    caseIds: z.array(z.string()).min(1),
+    runs: z.number().int().positive(),
+  }),
+  variants: z.array(AxCotVariantSchema).min(2),
+  summary: z.object({
+    wins: z.record(z.number().int().nonnegative()),
+    averageScores: z.record(z.number()),
+    judgeFailures: z.number().int().nonnegative(),
+    recommendation: z.enum(["reject", "needs_review", "promote_candidate"]),
+  }),
+  rows: z.array(
+    z.object({
+      caseId: z.string(),
+      title: z.string(),
+      run: z.number().int().nonnegative(),
+      blindLabels: z.record(AxCotVariantSchema),
+      outputs: z.record(z.string()),
+      judge: z.object({
+        bestLabel: z.enum(["A", "B", "C", "tie"]),
+        winner: z.union([AxCotVariantSchema, z.literal("tie")]),
+        baselineScore: z.number().min(0).max(1),
+        roleImmersionScore: z.number().min(0).max(1),
+        pureAnalysisScore: z.number().min(0).max(1),
+        aliceSafeInnerHintScore: z.number().min(0).max(1).optional(),
+        naturalness: z.string(),
+        fun: z.string(),
+        aliceFit: z.string(),
+        risks: z.string(),
+        reason: z.string(),
+      }),
+      error: z.string().optional(),
+    }),
+  ),
+});
+
+export type AxCotClassicPairwiseReport = z.infer<typeof AxCotClassicPairwiseReportSchema>;
+
 export function readAxOptimizerArtifact(path: string): AxOptimizerArtifact {
   return AxOptimizerArtifactSchema.parse(JSON.parse(readFileSync(path, "utf8")));
 }
@@ -217,6 +322,30 @@ export function writeAxGroupReceptionCalibrationReport(
   mkdirSync(outputDir, { recursive: true });
   const timestamp = parsed.generatedAt.replace(/[:.]/g, "-");
   const path = join(outputDir, `ax-group-reception-calibration-${timestamp}.json`);
+  writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return path;
+}
+
+export function writeAxCotMarkerAblationReport(
+  outputDir: string,
+  report: AxCotMarkerAblationReport,
+): string {
+  const parsed = AxCotMarkerAblationReportSchema.parse(report);
+  mkdirSync(outputDir, { recursive: true });
+  const timestamp = parsed.generatedAt.replace(/[:.]/g, "-");
+  const path = join(outputDir, `ax-cot-marker-ablation-${timestamp}.json`);
+  writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return path;
+}
+
+export function writeAxCotClassicPairwiseReport(
+  outputDir: string,
+  report: AxCotClassicPairwiseReport,
+): string {
+  const parsed = AxCotClassicPairwiseReportSchema.parse(report);
+  mkdirSync(outputDir, { recursive: true });
+  const timestamp = parsed.generatedAt.replace(/[:.]/g, "-");
+  const path = join(outputDir, `ax-cot-classic-pairwise-${timestamp}.json`);
   writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
   return path;
 }

@@ -88,6 +88,12 @@ function insertEvidence(values: {
       replyToAliceCount: values.outcome === "warm_reply" ? 1 : 0,
       hostileMatchCount: values.outcome === "hostile" ? 1 : 0,
       sourceMessageLogIdsJson: values.sourceMessageLogIdsJson,
+      semanticReception: values.outcome === "warm_reply" ? "warm_accept" : "unknown",
+      semanticConfidence: values.outcome === "warm_reply" ? 0.8 : 0.4,
+      semanticRationale: "test fixture",
+      semanticSourceMessageLogIdsJson: values.sourceMessageLogIdsJson,
+      semanticAuthority: "deterministic",
+      semanticModel: null,
       previousReception: values.signal == null ? null : 0,
       nextReception: values.signal,
     })

@@ -23,7 +23,7 @@ import type { Config } from "../../config.js";
 import type { Dispatcher } from "../../core/dispatcher.js";
 import { getDb } from "../../db/connection.js";
 import { writeQueueTrace } from "../../db/observation-spine.js";
-import { PRESSURE_TYPICAL_SCALES } from "../../graph/constants.js";
+import { extractNumericId, PRESSURE_TYPICAL_SCALES } from "../../graph/constants.js";
 import type { WorldModel } from "../../graph/world-model.js";
 import { ChatTarget } from "../../prompt/types.js";
 import type { EventBuffer } from "../../telegram/events.js";
@@ -94,6 +94,8 @@ function isStale(
   currentPressures: PressureDims,
   threshold: number,
 ): boolean {
+  if (item.reason === "wakeup") return false;
+
   let sum = 0;
   for (let i = 0; i < 6; i++) {
     const scale = PRESSURE_TYPICAL_SCALES[i] || 1;
@@ -234,13 +236,6 @@ export async function startReActLoop(ctx: ActContext): Promise<void> {
           enqueueTick: item.enqueueTick,
           action: item.action,
         });
-        // 义务安全阀：stale 跳过也消耗一次 directed 义务，防止无限循环
-        if (item.target && ctx.G.has(item.target)) {
-          const pd = Number(ctx.G.getChannel(item.target).pending_directed ?? 0);
-          if (pd > 0) {
-            ctx.G.updateChannel(item.target, { pending_directed: pd - 1 });
-          }
-        }
         if (item.target) ctx.queue.markComplete(item.target);
         if (item.observation) {
           const metrics = ctx.queue.getMetrics();
@@ -262,7 +257,7 @@ export async function startReActLoop(ctx: ActContext): Promise<void> {
       // 群组成员校验——在 initSlot（fetchRecentMessages + prompt 组装）之前拦截，
       // 避免为已离开的群浪费 LLM token。
       if (item.target) {
-        const rawId = item.target.replace(/^channel:/, "");
+        const rawId = extractNumericId(item.target) ?? item.target;
         if (await isGroupOutboundBlocked(ctx.client, ctx.G, item.target, rawId)) {
           log.info("Engagement skipped: not a group member", { target: item.target });
           ctx.queue.markComplete(item.target);

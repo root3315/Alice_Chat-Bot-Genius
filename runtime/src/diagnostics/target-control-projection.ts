@@ -28,9 +28,13 @@ export interface TargetReceptionProjection {
   timeoutCount: number;
   receptionScore: number;
   latestOutcome: string | null;
+  latestSemanticReception: string | null;
+  latestSemanticAuthority: string | null;
+  latestSemanticConfidence: number | null;
   latestEvidenceAtMs: number | null;
   latestAliceMessageAtMs: number | null;
   latestSourceMessageLogIds: number[];
+  latestSemanticSourceMessageLogIds: number[];
 }
 
 type EvidenceRow = typeof interventionOutcomeEvidence.$inferSelect;
@@ -88,6 +92,16 @@ export function renderTargetControlProjectionDiagnostic(
     if (projection.latestSourceMessageLogIds.length > 0) {
       lines.push(`  source_message_log_ids=${projection.latestSourceMessageLogIds.join(",")}`);
     }
+    if (projection.latestSemanticReception) {
+      lines.push(
+        `  semantic=${projection.latestSemanticReception} authority=${projection.latestSemanticAuthority ?? "unknown"} confidence=${projection.latestSemanticConfidence?.toFixed(2) ?? "n/a"}`,
+      );
+    }
+    if (projection.latestSemanticSourceMessageLogIds.length > 0) {
+      lines.push(
+        `  semantic_source_message_log_ids=${projection.latestSemanticSourceMessageLogIds.join(",")}`,
+      );
+    }
   }
 
   return lines.join("\n");
@@ -126,9 +140,15 @@ function projectTarget(target: string, rows: EvidenceRow[]): TargetReceptionProj
     timeoutCount: unknownCount,
     receptionScore: signalWeight > 0 ? weightedSignal / signalWeight : 0,
     latestOutcome: latest?.outcome ?? null,
+    latestSemanticReception: latest?.semanticReception ?? null,
+    latestSemanticAuthority: latest?.semanticAuthority ?? null,
+    latestSemanticConfidence: latest?.semanticConfidence ?? null,
     latestEvidenceAtMs: latest?.evaluatedAtMs ?? null,
     latestAliceMessageAtMs: latest?.aliceMessageAtMs ?? null,
     latestSourceMessageLogIds: latest ? parseSourceIds(latest.sourceMessageLogIdsJson) : [],
+    latestSemanticSourceMessageLogIds: latest
+      ? parseSourceIds(latest.semanticSourceMessageLogIdsJson)
+      : [],
   };
 }
 

@@ -15,8 +15,9 @@ module.exports = {
     {
       name: "alice-runtime",
       cwd: runtimeDir,
-      script: "node_modules/.bin/tsx",
-      args: "--env-file=.env src/index.ts",
+      script: "node",
+      args: "--import tsx --env-file=.env src/index.ts",
+      interpreter: "none",
       autorestart: true,
       restart_delay: 10000,
       max_restarts: 10,

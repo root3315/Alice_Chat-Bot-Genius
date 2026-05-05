@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseTransportMessageId, parseTransportTargetId } from "../../platform/transport.js";
 import { isTelegramActionError } from "../../telegram/errors.js";
 import type { EngineApiDeps } from "../server.js";
+import { TARGET_NOT_WHITELISTED_CODE, targetAllowed } from "../target-policy.js";
 
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -39,6 +40,14 @@ function invalidRef(
   error: string,
 ): void {
   json(res, 400, { code, error });
+}
+
+function targetNotAllowed(res: ServerResponse, target: string): void {
+  json(res, 400, {
+    code: TARGET_NOT_WHITELISTED_CODE,
+    error: `target is outside Alice's allowed rooms: ${target}`,
+    target,
+  });
 }
 
 function unsupportedCapability(
@@ -174,6 +183,10 @@ export async function handleTransport(
     }
     const parsedTarget = parseTarget(res, target);
     if (!parsedTarget) return;
+    if (!targetAllowed(deps.targetWhitelist, parsedTarget)) {
+      targetNotAllowed(res, parsedTarget.stableId);
+      return;
+    }
     const adapter = adapterFor(res, deps, parsedTarget.platform, "send");
     if (!adapter?.send) return;
     const replyToRef = parseReplyTo(res, parsedTarget.platform, replyTo);
@@ -220,6 +233,10 @@ export async function handleTransport(
     }
     const parsedTarget = parseTarget(res, target);
     if (!parsedTarget) return;
+    if (!targetAllowed(deps.targetWhitelist, parsedTarget)) {
+      targetNotAllowed(res, parsedTarget.stableId);
+      return;
+    }
     const adapter = adapterFor(res, deps, parsedTarget.platform, "react");
     if (!adapter?.react) return;
     const parsedMessage = parseMessageRef(res, parsedTarget.platform, message);

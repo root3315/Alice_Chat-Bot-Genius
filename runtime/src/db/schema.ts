@@ -625,6 +625,14 @@ export const interventionOutcomeEvidence = sqliteTable(
     replyToAliceCount: integer("reply_to_alice_count").notNull(),
     hostileMatchCount: integer("hostile_match_count").notNull(),
     sourceMessageLogIdsJson: text("source_message_log_ids_json").notNull().default("[]"),
+    semanticReception: text("semantic_reception"),
+    semanticConfidence: real("semantic_confidence"),
+    semanticRationale: text("semantic_rationale"),
+    semanticSourceMessageLogIdsJson: text("semantic_source_message_log_ids_json")
+      .notNull()
+      .default("[]"),
+    semanticAuthority: text("semantic_authority").notNull().default("deterministic"),
+    semanticModel: text("semantic_model"),
     previousReception: real("previous_reception"),
     nextReception: real("next_reception"),
     createdAt: integer("created_at", { mode: "timestamp" })

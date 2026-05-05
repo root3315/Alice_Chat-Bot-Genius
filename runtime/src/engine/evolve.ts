@@ -341,7 +341,7 @@ function enqueueAndRecord(
     pressureSnapshot,
     contributions: pressures.contributions,
     focalEntities,
-    reason,
+    reason: state.mode === "wakeup" ? "wakeup" : reason,
     vmaxScored,
     vmaxSpread,
     facetId,
@@ -1556,6 +1556,16 @@ function computeTickPlan(
         values: { netValue: bestV, deltaP, socialCost, apiValue: pressures.API },
         focalEntities,
         vmaxScored: lastIausScored,
+        impulseToRetain:
+          suppressedTarget && bestV >= IMPULSE_MIN_VALUE
+            ? {
+                action: suppressedAction,
+                target: suppressedTarget,
+                netValue: bestV,
+                originTick: tick,
+                originMs: nowMs,
+              }
+            : undefined,
       };
     }
 
@@ -1590,6 +1600,16 @@ function computeTickPlan(
         },
         focalEntities,
         vmaxScored: lastIausScored,
+        impulseToRetain:
+          suppressedTarget && bestV >= IMPULSE_MIN_VALUE
+            ? {
+                action: suppressedAction,
+                target: suppressedTarget,
+                netValue: bestV,
+                originTick: tick,
+                originMs: nowMs,
+              }
+            : undefined,
       };
     }
 

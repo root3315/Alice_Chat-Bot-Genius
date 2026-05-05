@@ -133,6 +133,7 @@ cap_group = 6
       expect(config.llmApiKey).toBe("llm-secret");
       expect(config.exaApiKey).toBe("exa-secret");
       expect(config.youtubeApiKey).toBe("youtube-secret");
+      expect(config.soulProfile).toBe("default");
       expect(config.qqOneBotApiBaseUrl).toBe("");
       expect(config.qqOneBotEventWsUrl).toBe("");
       expect(config.qqOneBotAccessToken).toBe("");
@@ -141,6 +142,29 @@ cap_group = 6
       expect(config.qqOneBotReconnectMaxMs).toBe(60_000);
       expect(config.timezoneOffset).toBe(9);
       expect(config.rateCap.group).toBe(6);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("读取 soul profile 配置", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "alice-config-soul-"));
+    const configPath = join(tempDir, "config.toml");
+    writeConfig(
+      configPath,
+      `
+[soul]
+profile = "ojou"
+`,
+    );
+    process.env.ALICE_CONFIG_PATH = configPath;
+
+    try {
+      vi.resetModules();
+      const { loadConfig } = await import("../src/config.js");
+      const config = loadConfig();
+
+      expect(config.soulProfile).toBe("ojou");
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -286,7 +310,13 @@ group_id_env = "TEST_TTS_GROUP_ID"
     const configPath = join(tempDir, "config.toml");
     writeFileSync(
       whitelistPath,
-      ["# 只允许这些目标", "-1001234567890 # 主群", "", "7785440246", "-1001234567890"].join("\n"),
+      [
+        "# 只允许这些目标",
+        "channel:telegram:-1001234567890 # 主群",
+        "",
+        "channel:telegram:7785440246",
+        "-1001234567890",
+      ].join("\n"),
       "utf-8",
     );
     writeConfig(configPath);
@@ -319,7 +349,7 @@ group_id_env = "TEST_TTS_GROUP_ID"
       configPath,
       `
 [focus]
-whitelist = ["-1001234567890", "7785440246"]
+whitelist = ["channel:telegram:-1001234567890", "channel:telegram:7785440246"]
 `,
     );
     process.env.ALICE_CONFIG_PATH = configPath;
@@ -334,6 +364,54 @@ whitelist = ["-1001234567890", "7785440246"]
         "channel:telegram:-1001234567890",
         "channel:telegram:7785440246",
       ]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("兼容 TOML 内联裸 Telegram 数字白名单", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "alice-focus-whitelist-telegram-"));
+    const configPath = join(tempDir, "config.toml");
+    writeConfig(
+      configPath,
+      `
+[focus]
+whitelist = ["-1001234567890", "7785440246"]
+`,
+    );
+    process.env.ALICE_CONFIG_PATH = configPath;
+
+    try {
+      vi.resetModules();
+      const { loadConfig } = await import("../src/config.js");
+      const config = loadConfig();
+
+      expect(Array.from(config.focusWhitelist ?? [])).toEqual([
+        "channel:telegram:-1001234567890",
+        "channel:telegram:7785440246",
+      ]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("拒绝无法归一化的焦点白名单项", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "alice-focus-whitelist-invalid-"));
+    const configPath = join(tempDir, "config.toml");
+    writeConfig(
+      configPath,
+      `
+[focus]
+whitelist = ["channel:-1001234567890", "https://t.me/example"]
+`,
+    );
+    process.env.ALICE_CONFIG_PATH = configPath;
+
+    try {
+      vi.resetModules();
+      const { loadConfig } = await import("../src/config.js");
+
+      expect(() => loadConfig()).toThrow(/invalid focus whitelist target "channel:-1001234567890"/u);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

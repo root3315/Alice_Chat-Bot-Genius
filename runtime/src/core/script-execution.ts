@@ -183,13 +183,20 @@ export function isScriptExecutionErrorDetail(value: unknown): value is ScriptExe
  * 唯一传感器是 __ALICE_ACTION__。自然语言确认行只允许给人看，不能反向进入控制流。
  */
 export function hasCompletedSend(result: { completedActions: string[] }): boolean {
-  return result.completedActions.some(
-    (a) =>
-      a.startsWith("sent:") ||
-      a.startsWith("voice:") ||
-      a.startsWith("sticker:") ||
-      a.startsWith("react:") ||
-      a.startsWith("sent-file:") ||
-      a.startsWith("forwarded:"),
+  return countTelegramSideEffects(result) > 0;
+}
+
+export function isTelegramSideEffect(action: string): boolean {
+  return (
+    action.startsWith("sent:") ||
+    action.startsWith("voice:") ||
+    action.startsWith("sticker:") ||
+    action.startsWith("react:") ||
+    action.startsWith("sent-file:") ||
+    action.startsWith("forwarded:")
   );
+}
+
+export function countTelegramSideEffects(result: { completedActions: string[] }): number {
+  return result.completedActions.filter(isTelegramSideEffect).length;
 }

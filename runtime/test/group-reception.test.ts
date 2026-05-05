@@ -86,6 +86,12 @@ function createTables(): void {
       reply_to_alice_count INTEGER NOT NULL,
       hostile_match_count INTEGER NOT NULL,
       source_message_log_ids_json TEXT NOT NULL,
+      semantic_reception TEXT,
+      semantic_confidence REAL,
+      semantic_rationale TEXT,
+      semantic_source_message_log_ids_json TEXT NOT NULL DEFAULT '[]',
+      semantic_authority TEXT NOT NULL DEFAULT 'deterministic',
+      semantic_model TEXT,
       previous_reception REAL,
       next_reception REAL,
       created_at INTEGER NOT NULL
@@ -206,7 +212,7 @@ describe("updateGroupReception ADR-255 evidence", () => {
     const replyLogId = insertMessage({
       msgId: 7002,
       replyToMsgId: 7001,
-      text: "这个有意思",
+      text: "谢谢，有道理",
       createdAtMs: NOW_MS - 50_000,
     });
 
@@ -222,12 +228,52 @@ describe("updateGroupReception ADR-255 evidence", () => {
       afterMessageCount: 1,
       replyToAliceCount: 1,
       hostileMatchCount: 0,
+      semanticReception: "warm_accept",
+      semanticAuthority: "deterministic",
       previousReception: 0,
     });
     expect(JSON.parse(row.sourceMessageLogIdsJson)).toEqual([replyLogId]);
+    expect(JSON.parse(row.semanticSourceMessageLogIdsJson)).toEqual([replyLogId]);
+    expect(row.semanticConfidence).toBeGreaterThanOrEqual(0.8);
     expect(row.nextReception).toBeGreaterThan(0);
     expect(readSocialReception(graph, GROUP_ID)).toBeGreaterThan(0);
     expect(readEmotionEpisodes(graph)).toHaveLength(0);
+  });
+
+  it("direct follow-up alone is not warm authority", () => {
+    const graph = addGraphChannel();
+    graph.setDynamic(GROUP_ID, "social_reception", 0.25);
+    graph.setDynamic(GROUP_ID, "social_reception_ms", NOW_MS - 60_000);
+    const aliceLogId = insertAliceMessage({
+      msgId: 7051,
+      createdAtMs: NOW_MS - 10 * 60_000 - 1000,
+    });
+    const replyLogId = insertMessage({
+      msgId: 7052,
+      replyToMsgId: 7051,
+      text: "这个我看到了",
+      createdAtMs: NOW_MS - 9 * 60_000,
+    });
+
+    updateGroupReception({ graph, nowMs: NOW_MS });
+
+    const row = readOnlyEvidenceRow();
+    expect(row).toMatchObject({
+      channelId: GROUP_ID,
+      aliceMessageLogId: aliceLogId,
+      outcome: "unknown_timeout",
+      signal: null,
+      afterMessageCount: 1,
+      replyToAliceCount: 1,
+      hostileMatchCount: 0,
+      semanticReception: "unknown",
+      semanticAuthority: "deterministic",
+      previousReception: null,
+      nextReception: null,
+    });
+    expect(JSON.parse(row.sourceMessageLogIdsJson)).toEqual([replyLogId]);
+    expect(JSON.parse(row.semanticSourceMessageLogIdsJson)).toEqual([replyLogId]);
+    expect(readSocialReception(graph, GROUP_ID)).toBe(0.25);
   });
 
   it("repeated tick does not duplicate row or move graph again", () => {
@@ -236,7 +282,7 @@ describe("updateGroupReception ADR-255 evidence", () => {
     insertMessage({
       msgId: 7102,
       replyToMsgId: 7101,
-      text: "我回你",
+      text: "谢谢，懂了",
       createdAtMs: NOW_MS - 50_000,
     });
 

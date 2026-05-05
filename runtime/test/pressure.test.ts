@@ -154,19 +154,16 @@ describe("P2 信息压力", () => {
     const { total, contributions } = p2InformationPressure(G, n, tickMs(n), d);
 
     // i1: importance=0.8, stability=2.0, last_access=90, tracked=true, volatility=0.3, created=80
-    // T1.6: scaledN = lastAccess + (n - lastAccess) / FACT_TIME_SCALE
-    // scaledN = 90 + (100-90)/1440 = 90.006944...
-    // R = (1 + (scaledN-90)/(9*2.0))^(-0.5)
-    const scaledN1 = 90 + (100 - 90) / 1440;
-    const R1 = (1.0 + (scaledN1 - 90) / (9.0 * 2.0)) ** -0.5;
+    // P2 使用墙钟秒：gapDays=(100-90)min/1day，staleness 单位是 per-minute。
+    const gapDays1 = (100 - 90) / 1440;
+    const R1 = (1.0 + gapDays1 / (9.0 * 2.0)) ** -0.5;
     const memory1 = 0.8 * (1.0 - R1);
     const staleness1 = 0.3 * (100 - 80); // tracked=true
     expect(contributions.i1).toBeCloseTo(memory1 + staleness1, 10);
 
     // i2: importance=0.5, stability=1.0, last_access=50, tracked=false
-    // T1.6: scaledN = 50 + (100-50)/1440
-    const scaledN2 = 50 + (100 - 50) / 1440;
-    const R2 = (1.0 + (scaledN2 - 50) / (9.0 * 1.0)) ** -0.5;
+    const gapDays2 = (100 - 50) / 1440;
+    const R2 = (1.0 + gapDays2 / (9.0 * 1.0)) ** -0.5;
     const memory2 = 0.5 * (1.0 - R2);
     // tracked=false → staleness=0
     expect(contributions.i2).toBeCloseTo(memory2, 10);
@@ -193,9 +190,8 @@ describe("P2 信息压力", () => {
     const d = -0.5;
     const { contributions } = p2InformationPressure(G, n, tickMs(n), d);
 
-    // reinforcement_count=0 → reinforceFactor = max(1, log2(1)) = 1 → adjustedR = R
-    const scaledN = 90 + (100 - 90) / 1440;
-    const R = (1.0 + (scaledN - 90) / (9.0 * 2.0)) ** -0.5;
+    const gapDays = (100 - 90) / 1440;
+    const R = (1.0 + gapDays / (9.0 * 2.0)) ** -0.5;
     expect(contributions.fact0).toBeCloseTo(0.8 * (1.0 - R), 10);
   });
 
@@ -257,6 +253,28 @@ describe("P2 信息压力", () => {
     // R ∈ [0,1] → memoryTerm = importance × (1-R) ∈ [0, importance]
     expect(contributions.fresh).toBeGreaterThanOrEqual(0);
     expect(contributions.fresh).toBeLessThanOrEqual(0.9);
+  });
+
+  it("旧 untracked facts 的 memory pressure 有全局上限", () => {
+    const G = new WorldModel();
+    const now = Date.UTC(2026, 0, 1);
+    for (let i = 0; i < 100; i++) {
+      G.addFact(`fact_${i}`, {
+        importance: 1,
+        stability: 0.1,
+        last_access_ms: now - 365 * 86_400_000,
+        volatility: 0,
+        tracked: false,
+        created_ms: now - 365 * 86_400_000,
+        novelty: 0.5,
+        fact_type: "observation",
+      });
+    }
+
+    const { total, contributions } = p2InformationPressure(G, 100, now);
+
+    expect(total).toBeCloseTo(3.0, 10);
+    expect(Object.values(contributions).every((v) => v > 0 && v < 1)).toBe(true);
   });
 });
 
@@ -861,6 +879,7 @@ describe("P6 好奇心（ADR-112 Surprise-driven Curiosity）", () => {
     expect(total).toBeGreaterThan(0);
     expect(total).toBeLessThanOrEqual(0.6);
     expect(Object.values(contributions).some((value) => value > 0)).toBe(true);
+    expect(Object.keys(contributions).length).toBeLessThanOrEqual(8);
   });
 
   it("沉默偏差驱动 surprise（tier-derived 期望）", () => {

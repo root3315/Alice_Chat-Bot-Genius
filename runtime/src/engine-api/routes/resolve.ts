@@ -18,6 +18,7 @@ import {
   type TransportTargetRef,
 } from "../../platform/transport.js";
 import type { EngineApiDeps } from "../server.js";
+import { targetAllowed } from "../target-policy.js";
 
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -56,6 +57,7 @@ function nodeLabel(deps: EngineApiDeps, nodeId: string): string {
 function targetCandidate(deps: EngineApiDeps, nodeId: string) {
   const target = normalizeNodeIdToTarget(nodeId);
   if (!target) return null;
+  if (!targetAllowed(deps.targetWhitelist, target)) return null;
   return {
     target: target.stableId,
     nodeId,
@@ -63,6 +65,14 @@ function targetCandidate(deps: EngineApiDeps, nodeId: string) {
     platform: target.platform,
     kind: target.kind,
   };
+}
+
+function targetNotFound(res: ServerResponse, raw: string): void {
+  json(res, 200, {
+    ok: true,
+    result: null,
+    message: `no target found with name "${raw}"`,
+  });
 }
 
 function collectTargetCandidates(deps: EngineApiDeps, raw: string) {
@@ -237,6 +247,10 @@ export async function handleResolveTarget(
   const raw = target.trim();
   const stable = parseTransportTargetId(raw);
   if (stable) {
+    if (!targetAllowed(deps.targetWhitelist, stable)) {
+      targetNotFound(res, raw);
+      return;
+    }
     json(res, 200, {
       ok: true,
       result: {
@@ -282,9 +296,5 @@ export async function handleResolveTarget(
     return;
   }
 
-  json(res, 200, {
-    ok: true,
-    result: null,
-    message: `no target found with name "${raw}"`,
-  });
+  targetNotFound(res, raw);
 }

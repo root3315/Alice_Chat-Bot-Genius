@@ -10,7 +10,10 @@
  *
  * @see docs/adr/174-persona-facets.md
  */
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModContext } from "../src/core/types.js";
 import { WorldModel } from "../src/graph/world-model.js";
 import { soulMod } from "../src/mods/soul.mod.js";
@@ -23,6 +26,14 @@ import {
   selectFacet,
   selectFacetDeterministic,
 } from "../src/voices/palette.js";
+
+const previousConfigPath = process.env.ALICE_CONFIG_PATH;
+
+afterEach(() => {
+  if (previousConfigPath === undefined) delete process.env.ALICE_CONFIG_PATH;
+  else process.env.ALICE_CONFIG_PATH = previousConfigPath;
+  vi.resetModules();
+});
 
 // -- 测试工具 ------------------------------------------------------------------
 
@@ -227,6 +238,103 @@ describe("soul.mod contribute — facet guidance 注入", () => {
     const items = contribute(ctx as unknown as ModContext);
     const soulCore = items.find((i) => i.priority === 100 && i.bucket === "header");
     expect(soulCore).toBeDefined();
+  });
+
+  it("config.toml soul.profile = ojou 时注入 SOUL.ojou.md", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "alice-soul-profile-"));
+    const configPath = join(tempDir, "config.toml");
+    writeFileSync(
+      join(tempDir, "SOUL.ojou.md"),
+      `
+You are Alice, in her ojou-sama mood.
+You speak like a young lady, not a maid, not a servant.
+`.trim(),
+      "utf-8",
+    );
+    writeFileSync(
+      configPath,
+      `
+[telegram]
+api_id_env = "TEST_TELEGRAM_API_ID"
+api_hash_env = "TEST_TELEGRAM_HASH"
+phone_env = "TEST_TELEGRAM_PHONE"
+admin_env = "TEST_TELEGRAM_ADMIN"
+
+[[llm.endpoints]]
+name = "steady"
+base_url = "https://llm.example/v1"
+api_key_env = "TEST_LLM_API_KEY"
+model = "steady-model"
+
+[llm.routing]
+first_pass = ["steady"]
+tool_tick = ["steady"]
+
+[soul]
+profile = "ojou"
+`.trimStart(),
+      "utf-8",
+    );
+    process.env.ALICE_CONFIG_PATH = configPath;
+
+    try {
+      vi.resetModules();
+      const { soulMod: configuredSoulMod } = await import("../src/mods/soul.mod.js");
+      const graph = new WorldModel();
+      graph.tick = 100;
+      const ctx = {
+        graph,
+        state: { activeVoice: null, activeFacet: null, voiceLostSince: null },
+        tick: 100,
+        nowMs: Date.now(),
+        getModState: () => undefined,
+        dispatch: () => undefined,
+      };
+      const items = configuredSoulMod.contribute?.(ctx as unknown as ModContext) ?? [];
+      const soulCore = items.find((i) => i.priority === 100 && i.bucket === "header");
+      const text = soulCore?.lines.join("\n") ?? "";
+
+      expect(text).toContain("You are Alice, in her ojou-sama mood.");
+      expect(text).toContain("young lady");
+      expect(text).toContain("not a maid");
+      expect(text).toContain("not a servant");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("config.toml soul.profile 指向缺失文件时拒绝启动", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "alice-soul-profile-missing-"));
+    const configPath = join(tempDir, "config.toml");
+    writeFileSync(
+      configPath,
+      `
+[soul]
+profile = "ojou"
+`.trimStart(),
+      "utf-8",
+    );
+    process.env.ALICE_CONFIG_PATH = configPath;
+
+    try {
+      vi.resetModules();
+      vi.doMock("node:fs", () => ({
+        readFileSync: (
+          path: Parameters<typeof readFileSync>[0],
+          options?: Parameters<typeof readFileSync>[1],
+        ) => {
+          if (String(path).endsWith("SOUL.ojou.md")) {
+            throw new Error("mock missing SOUL.ojou.md");
+          }
+          return readFileSync(path, options);
+        },
+      }));
+      await expect(import("../src/mods/soul.mod.js")).rejects.toThrow(
+        'SOUL profile "ojou" requires SOUL.ojou.md',
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("Instincts 只投影媒体感知边界，不包含工具命令教学", () => {

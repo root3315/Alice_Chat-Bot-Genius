@@ -192,6 +192,26 @@ function makeCmdReq(name: string, skill?: string): IncomingMessage {
   } as unknown as IncomingMessage;
 }
 
+function makeAlbumReq(action: string, method = "POST"): IncomingMessage {
+  // biome-ignore lint/suspicious/noExplicitAny: test mock
+  const listeners: Record<string, Array<(...args: any[]) => void>> = {};
+  return {
+    method,
+    url: `/album/${action}`,
+    headers: {},
+    // biome-ignore lint/suspicious/noExplicitAny: test mock
+    on(event: string, cb: (...args: any[]) => void) {
+      listeners[event] ??= [];
+      listeners[event].push(cb);
+      return this;
+    },
+    [Symbol.for("vitest.dispatchListeners")]: listeners,
+    resume() {
+      return this;
+    },
+  } as unknown as IncomingMessage;
+}
+
 async function runBody(req: IncomingMessage, body?: unknown): Promise<void> {
   const listeners = (req as unknown as Record<PropertyKey, unknown>)[
     Symbol.for("vitest.dispatchListeners")
@@ -731,6 +751,91 @@ describe("Engine API route", () => {
     });
   });
 
+  it("target whitelist blocks direct message-producing syscalls", async () => {
+    dynamicRegistry = {};
+
+    const G = new WorldModel();
+    G.addAgent("self");
+    const telegramSend = vi.fn(async () => ({ msgId: 1 }));
+    const transportSend = vi.fn(async () => ({
+      platform: "telegram",
+      target: "channel:telegram:8",
+      messageId: "message:telegram:8:21",
+      nativeMessageId: 21,
+    }));
+    const telegramAlbumSend = vi.fn(async () => ({
+      msgId: 2,
+      sendMode: "single",
+      assetId: "asset-1",
+    }));
+    const deps = {
+      config: {
+        timezoneOffset: 8,
+        exaApiKey: "",
+        musicApiBaseUrl: "",
+        youtubeApiKey: "",
+      },
+      G,
+      strictCapabilities: false,
+      registry: {},
+      targetWhitelist: new Set(["channel:telegram:7"]),
+      telegramSend,
+      telegramAlbumSend,
+      transportAdapters: {
+        telegram: {
+          platform: "telegram",
+          send: transportSend,
+        } satisfies TransportAdapter,
+      },
+    };
+
+    const telegramRes = makeRes();
+    const telegramReq = makeTelegramReq("send");
+    const telegramPromise = routeRequest(telegramReq, telegramRes.res, deps);
+    await runBody(telegramReq, { chatId: 8, text: "hello" });
+    await telegramPromise;
+
+    const transportRes = makeRes();
+    const transportReq = makeTransportReq("send");
+    const transportPromise = routeRequest(transportReq, transportRes.res, deps);
+    await runBody(transportReq, { target: "channel:telegram:8", text: "hello" });
+    await transportPromise;
+
+    const albumRes = makeRes();
+    const albumReq = makeAlbumReq("send");
+    const albumPromise = routeRequest(albumReq, albumRes.res, deps);
+    await runBody(albumReq, { assetId: "asset-1", targetChatId: 8 });
+    await albumPromise;
+
+    expect(telegramSend).not.toHaveBeenCalled();
+    expect(transportSend).not.toHaveBeenCalled();
+    expect(telegramAlbumSend).not.toHaveBeenCalled();
+    expect(telegramRes.snapshot()).toEqual({
+      statusCode: 400,
+      body: {
+        code: "command_invalid_target",
+        error: "target is outside Alice's allowed rooms",
+        target: "channel:telegram:8",
+      },
+    });
+    expect(transportRes.snapshot()).toEqual({
+      statusCode: 400,
+      body: {
+        code: "command_invalid_target",
+        error: "target is outside Alice's allowed rooms: channel:telegram:8",
+        target: "channel:telegram:8",
+      },
+    });
+    expect(albumRes.snapshot()).toEqual({
+      statusCode: 400,
+      body: {
+        code: "command_invalid_target",
+        error: "target is outside Alice's allowed rooms",
+        target: "channel:telegram:8",
+      },
+    });
+  });
+
   it("transport send normalizes legacy Telegram channel refs", async () => {
     const G = new WorldModel();
     G.addAgent("self");
@@ -1069,6 +1174,89 @@ describe("Engine API route", () => {
           platform: "telegram",
           kind: "channel",
           nodeId: "channel:7",
+        },
+      },
+    });
+  });
+
+  it("resolve target hides targets outside target whitelist", async () => {
+    const G = new WorldModel();
+    G.addAgent("self");
+    G.addChannel("channel:telegram:42", { display_name: "allowed-room" });
+    G.addChannel("channel:telegram:43", { display_name: "blocked-room" });
+    G.addContact("contact:telegram:44", { display_name: "blocked-person" });
+    G.addChannel("channel:telegram:44", { display_name: "blocked-person-private" });
+    const deps = {
+      config: {
+        timezoneOffset: 8,
+        exaApiKey: "",
+        musicApiBaseUrl: "",
+        youtubeApiKey: "",
+      },
+      G,
+      strictCapabilities: false,
+      registry: {},
+      targetWhitelist: new Set(["channel:telegram:42"]),
+    };
+
+    const stableRes = makeRes();
+    const stableReq = makeResolveTargetReq();
+    const stablePromise = routeRequest(stableReq, stableRes.res, deps);
+    await runBody(stableReq, { target: "channel:telegram:43" });
+    await stablePromise;
+
+    const nameRes = makeRes();
+    const nameReq = makeResolveTargetReq();
+    const namePromise = routeRequest(nameReq, nameRes.res, deps);
+    await runBody(nameReq, { target: "blocked-room" });
+    await namePromise;
+
+    const contactRes = makeRes();
+    const contactReq = makeResolveTargetReq();
+    const contactPromise = routeRequest(contactReq, contactRes.res, deps);
+    await runBody(contactReq, { target: "blocked-person" });
+    await contactPromise;
+
+    const allowedRes = makeRes();
+    const allowedReq = makeResolveTargetReq();
+    const allowedPromise = routeRequest(allowedReq, allowedRes.res, deps);
+    await runBody(allowedReq, { target: "allowed-room" });
+    await allowedPromise;
+
+    expect(stableRes.snapshot()).toEqual({
+      statusCode: 200,
+      body: {
+        ok: true,
+        result: null,
+        message: 'no target found with name "channel:telegram:43"',
+      },
+    });
+    expect(nameRes.snapshot()).toEqual({
+      statusCode: 200,
+      body: {
+        ok: true,
+        result: null,
+        message: 'no target found with name "blocked-room"',
+      },
+    });
+    expect(contactRes.snapshot()).toEqual({
+      statusCode: 200,
+      body: {
+        ok: true,
+        result: null,
+        message: 'no target found with name "blocked-person"',
+      },
+    });
+    expect(allowedRes.snapshot()).toEqual({
+      statusCode: 200,
+      body: {
+        ok: true,
+        result: {
+          target: "channel:telegram:42",
+          nodeId: "channel:telegram:42",
+          label: "allowed-room",
+          platform: "telegram",
+          kind: "channel",
         },
       },
     });

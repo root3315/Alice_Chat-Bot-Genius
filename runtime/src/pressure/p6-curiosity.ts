@@ -1,14 +1,15 @@
 /**
- * P6 好奇心 (Curiosity) — 论文 Definition 3.3 对齐实现。
+ * P6 好奇心 (Curiosity) — 未满足的 epistemic pressure。
  *
- * 论文公式（减性，有界）：
- *   P6(n) = max(0, η - (1/k) × Σ_{j=n-k}^{n} novelty(j))    ∈ [0, η]
+ * 论文里的减性 novelty-deficit 公式用于表达“信息满足后好奇心下降”的理想性质；
+ * 运行时不能把 prediction error / hunger 当成已经满足的 novelty 再放进
+ * `η - mean(novelty)`。这些信号在工程语义上是未满足的好奇心压力：
+ * 越 surprise、越 hunger，P6 越应该上升。
  *
- * 当信息丰富时 P6→0（好奇心得到满足），信息匮乏时 P6→η（驱动探索行为）。
+ * 线上实现：
+ *   curiositySignal = mean(topK(per-contact surprise, per-channel hunger))
+ *   P6 = max(eta * tanh(curiositySignal), ambientCuriosity) ∈ [0, eta]
  *
- * 线上实现用 per-contact prediction error 和频道信息饥渴具体化 curiosity pressure。
- * 注意：prediction error / hunger 是未满足的 epistemic pressure，不是已满足的 novelty。
- * 把 surprise 放进 `η - mean(novelty)` 会反向钳制 P6，让越异常的联系人越不会触发好奇心。
  * contributions 保留 per-contact/per-channel 粒度用于 IAUS 路由。
  *
  * @see paper/ Definition 3.3 (Curiosity)
@@ -38,6 +39,12 @@ const CHANNEL_HUNGER_TAU_S = 21_600; // 6h
  * 频道是信息源不是社交对等体，好奇心贡献低于联系人。
  */
 const CHANNEL_CURIOSITY_WEIGHT = 0.3;
+
+/**
+ * P6 只用最强的少数 curiosity sources 聚合。
+ * 好奇心是注意力线索，不应随 500+ 弱联系人线性累加成常量满格。
+ */
+const CURIOSITY_TOP_K = 8;
 
 // -- 常量 -------------------------------------------------------------------
 
@@ -191,7 +198,6 @@ export function p6CuriosityWithHistory(
   // ── 计算 per-contact surprise（论文 Remark: novelty 的具体化）──────
 
   const contributions: Record<string, number> = {};
-  let rawCuriositySum = 0;
 
   for (const cid of contacts) {
     const attrs = G.getContact(cid);
@@ -208,7 +214,6 @@ export function p6CuriosityWithHistory(
     const curiosity = wTier * surprise * gamma;
     if (curiosity > 0) {
       contributions[cid] = curiosity;
-      rawCuriositySum += curiosity;
     }
   }
 
@@ -232,14 +237,19 @@ export function p6CuriosityWithHistory(
     const chCuriosity = CHANNEL_CURIOSITY_WEIGHT * hunger * unreadSignal;
     if (chCuriosity > 0) {
       contributions[chId] = chCuriosity;
-      rawCuriositySum += chCuriosity;
     }
   }
 
   // ── Aggregate pressure: bounded, source-count safe ──────────────────────
-  // rawCuriositySum 随联系人/频道数量增长；用 tanh 映射到 [0, η)，避免 529 个
-  // contact 把 P6 打爆，同时保留单个强 surprise 触发好奇心的能力。
-  const curiosityThisTick = eta * Math.tanh(rawCuriositySum);
+  // 先取 Top-K，再用均值聚合：这样 P6 反映“有没有强好奇线索”，而不是图规模。
+  const strongestSources = Object.entries(contributions)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, CURIOSITY_TOP_K);
+  const curiositySignal =
+    strongestSources.length > 0
+      ? strongestSources.reduce((sum, [, value]) => sum + value, 0) / strongestSources.length
+      : 0;
+  const curiosityThisTick = eta * Math.tanh(curiositySignal);
 
   const activeHistory = history ?? [curiosityThisTick];
   if (history) {
@@ -257,19 +267,20 @@ export function p6CuriosityWithHistory(
 
   const finalTotal = Math.max(smoothedCuriosity, ambientCuriosity);
 
-  // 缩放 contributions 使其总和 = finalTotal（IAUS 路由用）
-  const rawContribSum = Object.values(contributions).reduce((a, b) => a + b, 0);
+  // 缩放 Top-K contributions 使其总和 = finalTotal（IAUS 路由用）
+  const routedContributions = Object.fromEntries(strongestSources);
+  const rawContribSum = Object.values(routedContributions).reduce((a, b) => a + b, 0);
   if (rawContribSum > 0 && finalTotal > 0) {
     const scale = finalTotal / rawContribSum;
-    for (const key of Object.keys(contributions)) {
-      contributions[key] *= scale;
+    for (const key of Object.keys(routedContributions)) {
+      routedContributions[key] *= scale;
     }
   } else if (rawContribSum > 0 && finalTotal === 0) {
     // P6=0 时清空 contributions（好奇心满足，不需要路由）
-    for (const key of Object.keys(contributions)) {
-      contributions[key] = 0;
+    for (const key of Object.keys(routedContributions)) {
+      routedContributions[key] = 0;
     }
   }
 
-  return { total: finalTotal, contributions };
+  return { total: finalTotal, contributions: routedContributions };
 }

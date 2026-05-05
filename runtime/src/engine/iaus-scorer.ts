@@ -631,8 +631,14 @@ const CURVES = {
     min: EPSILON,
     max: 1,
   } as ResponseCurve,
-  // Curiosity
-  novelty: { type: "sigmoid", midpoint: 0.1, slope: 6, min: EPSILON, max: 1 } as ResponseCurve,
+  // Curiosity. τ₆ is unmet curiosity pressure, not novelty satisfaction.
+  curiosity_pressure: {
+    type: "sigmoid",
+    midpoint: 0.1,
+    slope: 6,
+    min: EPSILON,
+    max: 1,
+  } as ResponseCurve,
   info_pressure: {
     type: "sigmoid",
     midpoint: 0.2,
@@ -915,7 +921,8 @@ function computeSociabilityConsiderations(
 
 /**
  * Curiosity 专属 Considerations（3 个）。
- * ADR-183: 所有曲线经 π_C 调制——高 Curiosity 人格更早响应新颖信号。
+ * ADR-183/P6 audit: 所有曲线经 π_C 调制。
+ * τ₆ 是未满足的 curiosity pressure；不要把它命名为 novelty satisfaction。
  */
 function computeCuriosityConsiderations(
   tension: TensionVector,
@@ -925,8 +932,11 @@ function computeCuriosityConsiderations(
   const piC = config.personality.weights[VOICE_INDEX.curiosity];
   const cms = config.curveModulationStrength ?? DEFAULT_CURVE_MODULATION_STRENGTH;
 
-  // U_novelty: τ₆ → sigmoid（人格调制）
-  const U_novelty = evalCurve(modulateCurve(CURVES.novelty, piC, cms), tension.tau6);
+  // U_curiosity_pressure: τ₆ → sigmoid（人格调制）
+  const U_curiosity_pressure = evalCurve(
+    modulateCurve(CURVES.curiosity_pressure, piC, cms),
+    tension.tau6,
+  );
 
   // U_info_pressure: τ₂ → sigmoid（人格调制）
   const U_info_pressure = evalCurve(modulateCurve(CURVES.info_pressure, piC, cms), tension.tau2);
@@ -938,7 +948,7 @@ function computeCuriosityConsiderations(
   const voiValue = !isPermanent && config.beliefGamma > 0 ? extractVoI(config.beliefs, target) : 0;
   const U_exploration = evalCurve(modulateCurve(CURVES.exploration, piC, cms), voiValue);
 
-  return { U_novelty, U_info_pressure, U_exploration };
+  return { U_curiosity_pressure, U_info_pressure, U_exploration };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1220,7 +1230,7 @@ export function scoreAllCandidates(
   // @see Linux CFS: vruntime += delta/weight → 选 min(vruntime)
   const pool = scored; // 统一池
 
-  // ��算窗口内 per-target 服务次数
+  // 计算窗口内 per-target 服务次数
   const serviceInWindow = new Map<string, number>();
   let totalService = 0;
   for (const a of recentActions) {

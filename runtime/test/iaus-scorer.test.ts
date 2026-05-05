@@ -577,6 +577,28 @@ describe("scoreAllCandidates", () => {
     }
   });
 
+  it("curiosity consideration 使用 pressure 语义，不暴露旧 U_novelty", () => {
+    const G = buildGraph([{ id: "channel:curious", tierContact: 50 }]);
+    const tensionMap = new Map([["channel:curious", tension({ tau2: 0.5, tau6: 1.2 })]]);
+
+    const config = buildIAUSConfig(G, tensionMap, {
+      nowMs,
+      contributions: { P6: { "channel:curious": 1.2 } },
+      deterministic: true,
+    });
+    const result = scoreAllCandidates(tensionMap, G, 100, [], config);
+
+    expect(result).not.toBeNull();
+    if (result) {
+      const curiosity = result.scored.find(
+        (s) => s.target === "channel:curious" && s.action === "curiosity",
+      );
+      expect(curiosity).toBeDefined();
+      expect(curiosity?.considerations.U_curiosity_pressure).toBeGreaterThan(0);
+      expect("U_novelty" in (curiosity?.considerations ?? {})).toBe(false);
+    }
+  });
+
   // ── 行为场景测试 ──────────────────────────────────────────────────────
 
   it("directed 场景：高义务 target 得分高于空闲 target", () => {
@@ -988,14 +1010,13 @@ describe("D1: Momentum Bonus", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 9. D2: Rank Gate — ADR-182
+// 9. ADR-218: unified allocation pool supersedes ADR-182 Rank Gate
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("D2: Rank Gate", () => {
+describe("ADR-218: unified allocation pool", () => {
   const nowMs = BASE_NOW_MS;
 
-  it("有 urgent 候选时 winner 从 urgent 池选（即使 normal 得分更高）", () => {
-    // channel:obl 有义务（bypass=true），channel:hot 无义务但压力更高
+  it("新鲜 directed 义务仍可在统一池中胜出", () => {
     const G = buildGraph([
       { id: "channel:obl", tierContact: 50, pendingDirected: 3 },
       { id: "channel:hot", tierContact: 5 },
@@ -1017,13 +1038,12 @@ describe("D2: Rank Gate", () => {
 
     expect(result).not.toBeNull();
     if (result) {
-      // winner 必须来自 urgent 池（channel:obl）
       expect(result.candidate.target).toBe("channel:obl");
       expect(result.winnerBypassGates).toBe(true);
     }
   });
 
-  it("无 urgent 候选时从 normal 池选", () => {
+  it("没有 bypass 候选时选择 normal 池候选", () => {
     const G = buildGraph([
       { id: "channel:a", tierContact: 5 },
       { id: "channel:b", tierContact: 5 },
@@ -1043,7 +1063,39 @@ describe("D2: Rank Gate", () => {
 
     expect(result).not.toBeNull();
     if (result) {
-      // 无 urgent → 从 normal 池选，winner 不 bypass
+      expect(result.winnerBypassGates).toBe(false);
+    }
+  });
+
+  it("raw pending_directed 不再形成绝对 Rank Gate", () => {
+    const G = buildGraph([
+      { id: "channel:stale", tierContact: 150, pendingDirected: 1 },
+      { id: "channel:hot", tierContact: 5 },
+    ]);
+    G.setDynamic("channel:stale", "last_directed_ms", nowMs - 24 * 3600_000);
+
+    const tensionMap = new Map([
+      ["channel:stale", tension({ tau1: 0.01, tau5: 0.01 })],
+      ["channel:hot", tension({ tau1: 10, tau2: 10, tau3: 10, tau6: 10 })],
+    ]);
+
+    const config = buildIAUSConfig(G, tensionMap, {
+      nowMs,
+      contributions: {
+        P1: { "channel:stale": 0.1, "channel:hot": 100 },
+        P2: { "channel:hot": 100 },
+        P3: { "channel:hot": 100 },
+        P6: { "channel:hot": 100 },
+      },
+      candidateCtx: buildCandidateCtx(G, nowMs),
+      deterministic: true,
+    });
+    const result = scoreAllCandidates(tensionMap, G, 100, [], config);
+
+    expect(result).not.toBeNull();
+    if (result) {
+      expect(result.scored.some((s) => s.target === "channel:stale" && s.bypassGates)).toBe(true);
+      expect(result.candidate.target).toBe("channel:hot");
       expect(result.winnerBypassGates).toBe(false);
     }
   });

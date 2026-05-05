@@ -110,6 +110,40 @@ describe("buildSocialPanorama", () => {
     expect(lines[0]).toContain("shared recently");
   });
 
+  it("targetWhitelist filters contacts and groups before they reach the panorama", () => {
+    const G = makeGraph();
+    G.addContact("contact:telegram:42", { tier: 15, display_name: "Allowed" });
+    G.addContact("contact:telegram:43", { tier: 15, display_name: "Blocked" });
+    G.addRelation("self", "acquaintance", "contact:telegram:42");
+    G.addRelation("self", "acquaintance", "contact:telegram:43");
+    G.addChannel("channel:telegram:42", { chat_type: "private" });
+    G.addChannel("channel:telegram:43", { chat_type: "private" });
+    G.addChannel("channel:telegram:-1001", {
+      chat_type: "supergroup",
+      display_name: "Allowed Group",
+    });
+    G.addChannel("channel:telegram:-1002", {
+      chat_type: "supergroup",
+      display_name: "Blocked Group",
+    });
+    G.addRelation("self", "joined", "channel:telegram:-1001");
+    G.addRelation("self", "joined", "channel:telegram:-1002");
+
+    const lines = buildSocialPanorama(
+      G,
+      {},
+      {},
+      NOW,
+      new Set(["channel:telegram:42", "channel:telegram:-1001"]),
+    );
+    const rendered = lines.join("\n");
+
+    expect(rendered).toContain("Allowed");
+    expect(rendered).toContain("Allowed Group");
+    expect(rendered).not.toContain("Blocked");
+    expect(rendered).not.toContain("Blocked Group");
+  });
+
   it("ADR-208 W2: 有特质的联系人括号内显示 top-1 特质", () => {
     const G = makeGraph();
     G.addContact("contact:telegram:42", { tier: 15, display_name: "Rin" });

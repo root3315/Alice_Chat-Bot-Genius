@@ -111,10 +111,11 @@ export interface Dispatcher {
 export interface CreateDispatcherOptions {
   graph: WorldModel;
   mods: ModDefinition[];
+  targetWhitelist?: ReadonlySet<string> | null;
 }
 
 export function createAliceDispatcher(options: CreateDispatcherOptions): Dispatcher {
-  const { graph, mods } = options;
+  const { graph, mods, targetWhitelist = null } = options;
 
   // per-mod 状态存储
   const modStates = new Map<string, unknown>();
@@ -139,6 +140,7 @@ export function createAliceDispatcher(options: CreateDispatcherOptions): Dispatc
       state: modStates.get(modName),
       tick: currentTick,
       nowMs: currentNowMs,
+      targetWhitelist,
       getModState: <T = unknown>(name: string) => modStates.get(name) as T | undefined,
       dispatch: (instruction, args) => dispatchFn(instruction, args),
     };

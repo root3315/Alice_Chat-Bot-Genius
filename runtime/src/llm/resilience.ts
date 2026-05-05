@@ -76,10 +76,10 @@ class CircuitBreaker {
   recordSuccess(): void {
     if (this.state === "half-open") {
       log.info("Circuit breaker → closed (probe succeeded)");
+      this.onStateChange?.("closed");
     }
     this.state = "closed";
     this.consecutiveFailures = 0;
-    this.onStateChange?.("closed");
   }
 
   /** 记录失败。 */
@@ -95,7 +95,7 @@ class CircuitBreaker {
       return;
     }
 
-    if (this.consecutiveFailures >= this.threshold) {
+    if (this.state === "closed" && this.consecutiveFailures >= this.threshold) {
       this.state = "open";
       log.warn("Circuit breaker → open", {
         failures: this.consecutiveFailures,

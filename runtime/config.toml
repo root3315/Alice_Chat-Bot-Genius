@@ -97,6 +97,10 @@ youtube_api_key_env = ""
 wd_tagger_url = "http://127.0.0.1:39100"
 anime_classify_url = "http://127.0.0.1:39101"
 
+[soul]
+# Alice 的人格核心。default = SOUL.md；ojou = SOUL.ojou.md。
+profile = "ojou"
+
 [time]
 # 用户所在时区，UTC+8 写 8，日本写 9。
 timezone_offset = 8
@@ -107,16 +111,37 @@ quiet_window_start = 23
 quiet_window_end = 7
 
 [focus]
-# 推荐：直接写允许 Alice 分配注意力的 Telegram chat ID。
-# 不需要写内部 channel: 前缀；运行时会自动归一化。
+# 焦点白名单：限制 Alice 主动分配注意力、IAUS 候选和跨聊天目标解析。
+#
+# 推荐写法：写系统里的 canonical target id，也就是 channel:<platform>:<native-id>。
+# 例：
+# - Telegram 群 / supergroup: "channel:telegram:-1001234567890"
+# - Telegram 私聊: "channel:telegram:7785440246"
+# - QQ 群: "channel:qq:123456789"
+#
+# 兼容写法：Telegram 可以只写原生数字 chat ID，运行时会归一化：
+# - "-1001234567890" -> "channel:telegram:-1001234567890"
+# - "7785440246" -> "channel:telegram:7785440246"
+#
+# 不要写：
+# - 群名、用户名、@handle、t.me 链接
+# - 旧内部格式 "channel:-1001234567890"
+# - 带空格、逗号或其他说明文字的 ID
+#
+# 注意：whitelist = [] 不是“拒绝所有群”，而是“未配置内联白名单”。
+# 当 whitelist 为空时，运行时会继续尝试读取 whitelist_path；
+# 如果 whitelist_path 也为空，则尝试读取 ALICE_STATE_DIR/focus-whitelist.txt；
+# 这些都没有时，白名单关闭，Alice 会看到所有已知聊天。
 # whitelist = [
-#   "-1001234567890",
-#   "7785440246",
+#   "channel:telegram:-1001234567890",
+#   "channel:telegram:7785440246",
 # ]
 whitelist = []
 
-# 如果 whitelist 为空，也可以从文件读取。
-# 空字符串时自动读取 ALICE_STATE_DIR/focus-whitelist.txt（存在才启用）。
+# 如果 whitelist 为空，也可以从文件读取。文件内容一行一个 target id：
+#   channel:telegram:-1001234567890
+#   channel:telegram:7785440246
+# 行尾可以写 # 注释。空字符串时自动读取 ALICE_STATE_DIR/focus-whitelist.txt（存在才启用）。
 whitelist_path = ""
 
 [log]

@@ -10,6 +10,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { searchAlbumPhotos } from "../../db/album.js";
 import { isTelegramActionError } from "../../telegram/errors.js";
 import type { EngineApiDeps } from "../server.js";
+import { TARGET_NOT_WHITELISTED_CODE, telegramTargetAllowed } from "../target-policy.js";
 
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -34,6 +35,14 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 
 function badRequest(res: ServerResponse, error: string): void {
   json(res, 400, { error });
+}
+
+function targetNotAllowed(res: ServerResponse, chatId: number): void {
+  json(res, 400, {
+    code: TARGET_NOT_WHITELISTED_CODE,
+    error: "target is outside Alice's allowed rooms",
+    target: `channel:telegram:${chatId}`,
+  });
 }
 
 function serverError(res: ServerResponse, fallback: string, err: unknown): void {
@@ -99,6 +108,10 @@ export async function handleAlbum(
         res,
         'body must be { "assetId": string, "targetChatId": number, "caption"?: string, "replyTo"?: number }',
       );
+      return;
+    }
+    if (!telegramTargetAllowed(deps.targetWhitelist, b.targetChatId)) {
+      targetNotAllowed(res, b.targetChatId);
       return;
     }
     try {

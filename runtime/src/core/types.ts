@@ -49,6 +49,8 @@ export interface ModContext<TState = unknown> {
   tick: number;
   /** ADR-110: 当前墙钟时间（ms），evolveTick 顶部计算一次，线程到所有子函数。 */
   nowMs: number;
+  /** 可行动目标白名单。null = 未启用白名单；空集合 = 无可行动目标。 */
+  targetWhitelist?: ReadonlySet<string> | null;
   /** 读取其他 Mod 的状态（只读）。 */
   getModState: <T = unknown>(modName: string) => T | undefined;
   /** 调用其他 Mod 的指令（跨 Mod 协作）。由 Dispatcher 注入。 */

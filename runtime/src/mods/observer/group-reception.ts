@@ -44,6 +44,29 @@ const HOSTILE_KEYWORDS = [
   "на китайский перешла",
 ];
 
+/** 高置信正向接纳短语。只覆盖很窄的 deterministic positive guard。 */
+const WARM_ACCEPT_KEYWORDS = [
+  "谢谢",
+  "感谢",
+  "有道理",
+  "确实",
+  "懂了",
+  "明白了",
+  "可以",
+  "好呀",
+  "好啊",
+  "thank you",
+  "thanks",
+  "makes sense",
+  "agree",
+  "got it",
+  "понял",
+  "поняла",
+  "спасибо",
+  "согласен",
+  "согласна",
+];
+
 /** EMA 系数：新信号占 30%。 */
 const RECEPTION_ALPHA = 0.3;
 /** 无新信号时，每小时自然衰减率。 */
@@ -132,22 +155,43 @@ type LaterGroupMessage = {
 };
 
 type ReceptionOutcome = "warm_reply" | "cold_ignored" | "hostile" | "unknown_timeout";
+type SemanticReception =
+  | "warm_accept"
+  | "neutral_continue"
+  | "corrective"
+  | "hostile_reject"
+  | "offtopic"
+  | "unknown";
 
 type ReceptionClassification =
   | {
       outcome: Exclude<ReceptionOutcome, "unknown_timeout">;
       signal: number;
+      semanticReception: SemanticReception;
+      semanticConfidence: number;
+      semanticRationale: string;
+      semanticSourceMessageLogIds: number[];
+      semanticAuthority: "deterministic" | "auxiliary_judge";
+      semanticModel: string | null;
       afterMessageCount: number;
       replyToAliceCount: number;
       hostileMatchCount: number;
+      directedFollowupCount: number;
       sourceMessageLogIds: number[];
     }
   | {
       outcome: "unknown_timeout";
       signal: null;
+      semanticReception: SemanticReception;
+      semanticConfidence: number;
+      semanticRationale: string;
+      semanticSourceMessageLogIds: number[];
+      semanticAuthority: "deterministic" | "auxiliary_judge";
+      semanticModel: string | null;
       afterMessageCount: number;
       replyToAliceCount: number;
       hostileMatchCount: number;
+      directedFollowupCount: number;
       sourceMessageLogIds: number[];
     }
   | null;
@@ -251,6 +295,14 @@ export function updateGroupReception(ctx: { graph: WorldModel; nowMs: number }):
           replyToAliceCount: classification.replyToAliceCount,
           hostileMatchCount: classification.hostileMatchCount,
           sourceMessageLogIdsJson: JSON.stringify(classification.sourceMessageLogIds),
+          semanticReception: classification.semanticReception,
+          semanticConfidence: classification.semanticConfidence,
+          semanticRationale: classification.semanticRationale,
+          semanticSourceMessageLogIdsJson: JSON.stringify(
+            classification.semanticSourceMessageLogIds,
+          ),
+          semanticAuthority: classification.semanticAuthority,
+          semanticModel: classification.semanticModel,
           previousReception,
           nextReception,
         })
@@ -347,24 +399,71 @@ function classifyReception(
   const replyToAliceCount =
     aliceMsg.msgId === null ? 0 : afterMsgs.filter((m) => m.replyToMsgId === aliceMsg.msgId).length;
   const hostileMatchCount = afterMsgs.filter((m) => containsHostileKeyword(m.text)).length;
+  const hostileSourceMessageLogIds = afterMsgs
+    .filter((m) => containsHostileKeyword(m.text))
+    .map((m) => m.id);
+  const warmAcceptMessageLogIds = afterMsgs
+    .filter((m) => containsWarmAccept(m.text))
+    .map((m) => m.id);
   const common = {
     afterMessageCount: afterMsgs.length,
     replyToAliceCount,
+    directedFollowupCount: replyToAliceCount,
     hostileMatchCount,
     sourceMessageLogIds,
+    semanticAuthority: "deterministic" as const,
+    semanticModel: null,
   };
 
   if (hostileMatchCount > 0) {
-    return { ...common, outcome: "hostile", signal: -0.5 };
+    return {
+      ...common,
+      outcome: "hostile",
+      signal: -0.5,
+      semanticReception: replyToAliceCount > 0 ? "corrective" : "hostile_reject",
+      semanticConfidence: 0.95,
+      semanticRationale:
+        replyToAliceCount > 0
+          ? "A direct follow-up corrected or pushed back on Alice."
+          : "A follow-up used hostile or corrective language after Alice spoke.",
+      semanticSourceMessageLogIds: hostileSourceMessageLogIds,
+    };
   }
-  if (replyToAliceCount > 0) {
-    return { ...common, outcome: "warm_reply", signal: 0.3 };
+  if (warmAcceptMessageLogIds.length > 0) {
+    return {
+      ...common,
+      outcome: "warm_reply",
+      signal: 0.3,
+      semanticReception: "warm_accept",
+      semanticConfidence: 0.8,
+      semanticRationale: "A follow-up used a narrow high-confidence acceptance or gratitude cue.",
+      semanticSourceMessageLogIds: warmAcceptMessageLogIds,
+    };
   }
   if (afterMsgs.length >= COLD_THRESHOLD_MSGS) {
-    return { ...common, outcome: "cold_ignored", signal: -0.2 };
+    return {
+      ...common,
+      outcome: "cold_ignored",
+      signal: -0.2,
+      semanticReception: "unknown",
+      semanticConfidence: 0.7,
+      semanticRationale: "The group continued past the cold threshold without clear reception.",
+      semanticSourceMessageLogIds: sourceMessageLogIds,
+    };
   }
   if (nowMs - aliceMsg.createdAt.getTime() >= RECEPTION_LOOKBACK_MS) {
-    return { ...common, outcome: "unknown_timeout", signal: null };
+    return {
+      ...common,
+      outcome: "unknown_timeout",
+      signal: null,
+      semanticReception: replyToAliceCount > 0 ? "unknown" : "unknown",
+      semanticConfidence: replyToAliceCount > 0 ? 0.5 : 0.4,
+      semanticRationale:
+        replyToAliceCount > 0
+          ? "A direct follow-up exists, but deterministic structure cannot prove warm acceptance."
+          : "The follow-up window expired without terminal semantic evidence.",
+      semanticSourceMessageLogIds: sourceMessageLogIds,
+    };
   }
 
   return null;
@@ -414,6 +513,12 @@ function containsHostileKeyword(text: string | null): boolean {
   if (!text) return false;
   const normalized = text.toLowerCase();
   return HOSTILE_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+function containsWarmAccept(text: string | null): boolean {
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  return WARM_ACCEPT_KEYWORDS.some((kw) => normalized.includes(kw));
 }
 
 async function evaluateReceptionShadowJudge(

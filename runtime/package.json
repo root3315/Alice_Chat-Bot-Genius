@@ -24,6 +24,7 @@
     "eval": "tsx --env-file=.env src/eval/cli.ts",
     "eval:ax-optimize": "tsx --env-file=.env src/eval/ax/cli.ts",
     "eval:ax-gate": "tsx --env-file=.env src/eval/ax/gate.ts",
+    "eval:ax-cot-ablation": "tsx --env-file=.env src/eval/ax/cot-ablation.ts",
     "eval:ax-judge-calibrate": "tsx --env-file=.env src/eval/ax/calibrate-judge.ts",
     "eval:ax-group-reception-calibrate": "tsx --env-file=.env src/eval/ax/calibrate-group-reception.ts",
     "eval:ax-group-reception-replay": "tsx --env-file=.env src/eval/ax/replay-group-reception.ts",

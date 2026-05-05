@@ -663,6 +663,10 @@ describe("ADR-252: IAUS queue backpressure", () => {
       queueSaturation: beforeMetrics.saturation,
       queueBackpressureThreshold: 0.8,
     });
+    expect(state.deliberation.pendingImpulses).toHaveLength(1);
+    expect(state.deliberation.pendingImpulses[0]).toMatchObject({
+      target: "channel:telegram:252",
+    });
   });
 
   it("队列饱和时不抑制 directed bypass IAUS 赢家", () => {
@@ -695,6 +699,10 @@ describe("post-wakeup recovery target spread control", () => {
     const silenceTrace = traces.find((trace) => trace.finalDecision === "silence");
     expect(silenceTrace?.payload.reason).toBe("post_wakeup_recovery");
     expect(silenceTrace?.target).toBe("channel:telegram:252");
+    expect(state.deliberation.pendingImpulses).toHaveLength(1);
+    expect(state.deliberation.pendingImpulses[0]).toMatchObject({
+      target: "channel:telegram:252",
+    });
   });
 
   it("恢复窗口内允许继续已接触目标", () => {

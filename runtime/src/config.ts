@@ -33,6 +33,8 @@ const OptionalEnvNameSchema = z.preprocess(
   z.string().min(1).optional(),
 );
 const OptionalUrlStringSchema = z.union([z.literal(""), z.string().url()]);
+export const SoulProfileSchema = z.enum(["default", "ojou"]);
+export type SoulProfile = z.infer<typeof SoulProfileSchema>;
 
 // -- D5: Provider Fallback（ADR-123 §D5）-------------------------------------
 // @see docs/adr/123-crystallization-substrate-generalization.md §D5
@@ -138,6 +140,11 @@ const RuntimeTomlSchema = z.object({
       youtube_api_key_env: OptionalEnvNameSchema,
       wd_tagger_url: z.string().default("http://127.0.0.1:39100"),
       anime_classify_url: z.string().default("http://127.0.0.1:39101"),
+    })
+    .default({}),
+  soul: z
+    .object({
+      profile: SoulProfileSchema.default("default"),
     })
     .default({}),
   ocr: z
@@ -300,17 +307,21 @@ type RuntimeTomlConfig = z.infer<typeof RuntimeTomlSchema>;
 
 const DEFAULT_FOCUS_WHITELIST_FILENAME = "focus-whitelist.txt";
 
+function normalizeFocusWhitelistTarget(raw: string, source: string): string {
+  const target = raw.trim();
+  const channelId = ensureChannelId(target);
+  if (channelId) return channelId;
+  throw new Error(
+    `${source} contains invalid focus whitelist target "${raw}". Use canonical channel:<platform>:<native-id> target ids, or a bare Telegram numeric chat id for compatibility.`,
+  );
+}
+
 function parseFocusWhitelistFile(content: string): ReadonlySet<string> {
   const targets = new Set<string>();
-  for (const line of content.split(/\r?\n/u)) {
+  for (const [index, line] of content.split(/\r?\n/u).entries()) {
     const trimmed = line.replace(/\s+#.*$/u, "").trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
-    const channelId = ensureChannelId(trimmed);
-    if (channelId) {
-      targets.add(channelId);
-      continue;
-    }
-    targets.add(trimmed);
+    targets.add(normalizeFocusWhitelistTarget(trimmed, `focus whitelist file line ${index + 1}`));
   }
   return targets;
 }
@@ -321,8 +332,8 @@ function loadFocusWhitelistFromConfig(focus: RuntimeTomlConfig["focus"]): {
 } {
   if (focus.whitelist.length > 0) {
     const normalized = new Set<string>();
-    for (const target of focus.whitelist) {
-      normalized.add(ensureChannelId(target) ?? target);
+    for (const [index, target] of focus.whitelist.entries()) {
+      normalized.add(normalizeFocusWhitelistTarget(target, `config.toml focus.whitelist[${index}]`));
     }
     return { path: "config.toml:focus.whitelist", targets: normalized };
   }
@@ -481,6 +492,9 @@ export interface Config {
   wdTaggerUrl: string;
   /** ADR-153: AnimeIDF 分类服务 URL。默认 http://127.0.0.1:39101，不可用时降级（全部通过）。 */
   animeClassifyUrl: string;
+
+  /** 人格核心 profile。default -> SOUL.md；ojou -> SOUL.ojou.md。 */
+  soulProfile: SoulProfile;
 
   // OCR — 本地 PaddleOCR PP-OCRv4（无 API 费用）
   /** OCR 启用开关。默认启用。 */
@@ -745,6 +759,7 @@ export function loadConfig(): Config {
     youtubeApiKey: secretFromEnv(toml.services.youtube_api_key_env, "services.youtube_api_key_env"),
     wdTaggerUrl: toml.services.wd_tagger_url,
     animeClassifyUrl: toml.services.anime_classify_url,
+    soulProfile: toml.soul.profile,
 
     ocrEnabled: toml.ocr.enabled,
     ocrMaxPerTick: toml.ocr.max_per_tick,

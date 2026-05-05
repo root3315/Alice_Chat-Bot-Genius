@@ -17,6 +17,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { ALLOWED_REACTIONS, normalizeReactionEmoji } from "../../telegram/actions/shared.js";
 import { isTelegramActionError } from "../../telegram/errors.js";
 import type { EngineApiDeps } from "../server.js";
+import { TARGET_NOT_WHITELISTED_CODE, telegramTargetAllowed } from "../target-policy.js";
 
 // ── 去重缓存：防止 LLM 重试轮重发已成功的消息 ──
 
@@ -86,6 +87,14 @@ function allowedReactionList(): string[] {
   return Array.from(ALLOWED_REACTIONS);
 }
 
+function ensureTargetAllowed(res: ServerResponse, deps: EngineApiDeps, chatId: number): boolean {
+  if (telegramTargetAllowed(deps.targetWhitelist, chatId)) return true;
+  typedInputError(res, TARGET_NOT_WHITELISTED_CODE, "target is outside Alice's allowed rooms", {
+    target: `channel:telegram:${chatId}`,
+  });
+  return false;
+}
+
 function serverError(res: ServerResponse, fallback: string, err: unknown): void {
   if (isTelegramActionError(err)) {
     typedInputError(res, err.code, err.message, err.details);
@@ -130,6 +139,7 @@ export async function handleTelegramForward(
       badRequest(res, 'body must be { "chatId": number, "text": string, "replyTo"?: number }');
       return;
     }
+    if (!ensureTargetAllowed(res, deps, chatId)) return;
     // 去重：30 秒内相同 chatId + text → 返回缓存结果
     const dedupeKey = `${chatId}:${hashText(text)}`;
     const cached = recentSends.get(dedupeKey);
@@ -195,6 +205,7 @@ export async function handleTelegramForward(
       badRequest(res, 'body must be { "chatId": number, "msgId": number, "emoji": string }');
       return;
     }
+    if (!ensureTargetAllowed(res, deps, chatId)) return;
     const normalizedEmoji = normalizeReactionEmoji(emoji);
     if (!ALLOWED_REACTIONS.has(normalizedEmoji)) {
       typedInputError(res, "invalid_reaction", "invalid reaction: use a Telegram-supported emoji", {
@@ -277,6 +288,7 @@ export async function handleTelegramForward(
       badRequest(res, 'body must be { "chatId": number, "sticker": string }');
       return;
     }
+    if (!ensureTargetAllowed(res, deps, chatId)) return;
     try {
       const result = await deps.telegramSticker({ chatId, sticker });
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -342,6 +354,7 @@ export async function handleTelegramForward(
       badRequest(res, 'body must be { "chatId": number, "path": string }');
       return;
     }
+    if (!ensureTargetAllowed(res, deps, chatId)) return;
     try {
       const result = await deps.telegramUpload({ chatId, path, caption, replyTo });
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -374,6 +387,7 @@ export async function handleTelegramForward(
       badRequest(res, 'body must be { "chatId": number, "text": string }');
       return;
     }
+    if (!ensureTargetAllowed(res, deps, chatId)) return;
     try {
       const result = await deps.telegramVoice({ chatId, text, emotion, replyTo });
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -410,6 +424,7 @@ export async function handleTelegramForward(
       );
       return;
     }
+    if (!ensureTargetAllowed(res, deps, b.toChatId)) return;
     try {
       const result = await deps.telegramForward({
         fromChatId: b.fromChatId,

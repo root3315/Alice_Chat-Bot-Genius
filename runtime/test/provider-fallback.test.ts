@@ -280,6 +280,16 @@ describe("D5: Provider Fallback", () => {
 
 // ADR-129: 熔断器状态变化监听器
 describe("ADR-129: breaker state change listener", () => {
+  it("closed 状态下的普通成功调用不触发恢复事件", async () => {
+    const events: Array<{ name: string; event: BreakerEventType }> = [];
+    onBreakerStateChange((name, event) => events.push({ name, event }));
+
+    await withResilience(() => Promise.resolve("ok"), {}, "steady-provider");
+    await withResilience(() => Promise.resolve("ok"), {}, "steady-provider");
+
+    expect(events).not.toContainEqual({ name: "steady-provider", event: "closed" });
+  });
+
   it("breaker open 时触发 listener", async () => {
     const events: Array<{ name: string; event: BreakerEventType }> = [];
     onBreakerStateChange((name, event) => events.push({ name, event }));
@@ -287,6 +297,27 @@ describe("ADR-129: breaker state change listener", () => {
     await tripBreaker("test-provider", 5);
 
     expect(events).toContainEqual({ name: "test-provider", event: "open" });
+  });
+
+  it("并发失败只触发一次 open 事件", async () => {
+    const events: Array<{ name: string; event: BreakerEventType }> = [];
+    onBreakerStateChange((name, event) => events.push({ name, event }));
+
+    await Promise.allSettled([
+      withResilience(
+        () => Promise.reject(Object.assign(new Error("503"), { status: 503 })),
+        { maxRetries: 0, circuitThreshold: 1 },
+        "parallel-fail",
+      ),
+      withResilience(
+        () => Promise.reject(Object.assign(new Error("503"), { status: 503 })),
+        { maxRetries: 0, circuitThreshold: 1 },
+        "parallel-fail",
+      ),
+    ]);
+
+    expect(events.filter((event) => event.name === "parallel-fail" && event.event === "open"))
+      .toHaveLength(1);
   });
 
   it("breaker 恢复（half-open → closed）时触发 listener", async () => {
