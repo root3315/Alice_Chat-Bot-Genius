@@ -13,6 +13,7 @@ import {
   extractNumericId,
   resolveContactAndChannel,
 } from "../../graph/constants.js";
+import { readDisplayLabel } from "../../graph/dynamic-props.js";
 import type { ChannelNodeId, ContactNodeId, TelegramId } from "../../graph/entities.js";
 import type { WorldModel } from "../../graph/world-model.js";
 import type { ActionQueueItem } from "../action-queue.js";
@@ -65,9 +66,7 @@ export function resolveTarget(G: WorldModel, target: string): ResolvedTarget {
   const fallbackChannel = ensureChannelId(target);
   if (G.has(target)) {
     return {
-      displayName: String(
-        G.getDynamic(target, "display_name") ?? G.getDynamic(target, "title") ?? target,
-      ),
+      displayName: readDisplayLabel(G, target),
       contactId: null,
       channelId: fallbackChannel,
       relationType: "",

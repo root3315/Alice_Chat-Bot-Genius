@@ -8,6 +8,7 @@
     "dev": "tsx --env-file=.env src/index.ts",
     "prestart": "pnpm run build:bin",
     "start": "tsx --env-file=.env src/index.ts",
+    "pretest": "pnpm run build:bin",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --write src/ test/",

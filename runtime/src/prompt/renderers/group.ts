@@ -74,7 +74,9 @@ export function renderGroup(snapshot: UserPromptSnapshot): string {
     rawBlock(socialReceptionLine),
     rawBlock(snapshot.episodeCarryOver),
     rawBlock(
-      snapshot.isDegraded ? "Running low — a reaction or a short line is enough." : undefined,
+      snapshot.isDegraded
+        ? "Running low — choose one concrete thing to notice, or stay quiet if nothing matters."
+        : undefined,
     ),
     rawBlock(snapshot.openTopic ? `You were talking about: ${snapshot.openTopic}.` : undefined),
     whisperBlock(snapshot.whisper, snapshot.presence),

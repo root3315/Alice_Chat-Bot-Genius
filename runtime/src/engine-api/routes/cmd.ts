@@ -55,7 +55,7 @@ export async function handleCmd(
     try {
       const result = await deps.query(name, args);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, result: result ?? null }));
+      res.end(JSON.stringify({ ok: true, kind: "query", result: result ?? null }));
       return;
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json" });
@@ -72,7 +72,7 @@ export async function handleCmd(
     try {
       const result = await deps.dispatchInstruction(name, args);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, result: result ?? null }));
+      res.end(JSON.stringify({ ok: true, kind: "instruction", result: result ?? null }));
       return;
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json" });

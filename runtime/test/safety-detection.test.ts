@@ -85,6 +85,7 @@ describe("D7: applyPerturbation safety_flag", () => {
     const G = makeGraph();
     applyPerturbation(G, {
       type: "new_message",
+      chatType: "group",
       channelId: "channel:test",
       contactId: "contact:a",
       tick: 1,
@@ -104,6 +105,7 @@ describe("D7: applyPerturbation safety_flag", () => {
     // 普通消息清除
     applyPerturbation(G, {
       type: "new_message",
+      chatType: "group",
       channelId: "channel:test",
       contactId: "contact:b",
       tick: 2,
@@ -119,6 +121,7 @@ describe("D7: applyPerturbation safety_flag", () => {
 
     applyPerturbation(G, {
       type: "new_message",
+      chatType: "group",
       channelId: "channel:test",
       contactId: "contact:c",
       tick: 3,

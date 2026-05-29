@@ -96,7 +96,10 @@ describe("ADR-130: selectNextEngagement", () => {
   });
 
   it("所有 slot 都不是 ready 时返回 null", () => {
-    const slots = [makeSlot("channel:a", 10, "reply_watch"), makeSlot("channel:b", 5, "linger_watch")];
+    const slots = [
+      makeSlot("channel:a", 10, "reply_watch"),
+      makeSlot("channel:b", 5, "linger_watch"),
+    ];
 
     expect(selectNextEngagement(slots)).toBeNull();
   });

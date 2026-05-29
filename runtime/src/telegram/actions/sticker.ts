@@ -15,9 +15,9 @@ import type { TelegramActionDef } from "../action-types.js";
 import { getInstalledStickers, getStickerSet, sendSticker, sendText } from "../actions.js";
 import {
   getAvailableKeywords,
+  KEYWORD_TO_EMOJI,
   resolveByEmoji,
   resolveLabel,
-  KEYWORD_TO_EMOJI,
 } from "../apps/sticker-palette.js";
 import { cacheOutgoingMsg } from "../events.js";
 

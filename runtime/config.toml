@@ -31,6 +31,19 @@ onebot_reconnect_min_ms = 1000
 onebot_reconnect_max_ms = 60000
 
 [[llm.endpoints]]
+name = "deepseek-v4-pro"
+base_url = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_KEY"
+model = "deepseek-v4-pro"
+
+[[llm.endpoints]]
+name = "deepseek-v4-flash"
+base_url = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_KEY"
+model = "deepseek-v4-flash"
+
+
+[[llm.endpoints]]
 name = "ohmygpt-deepseek-v4-flash"
 base_url = "https://api.ohmygpt.com/v1"
 api_key_env = "LLM_API_KEY"
@@ -45,7 +58,7 @@ model = "vertex-gemini-3-flash-preview"
 [llm.routing]
 # 首轮结构化模型组：适合 generateObject、启动检查、总结、未指定用途的通用 LLM 调用。
 # Gemini 可以参与这类“先判断/先分类”的任务；本组是 shuffle 池。
-first_pass = ["ohmygpt-gemini-3-flash-preview", "ohmygpt-deepseek-v4-flash"]
+first_pass = ["ohmygpt-deepseek-v4-flash", "ohmygpt-gemini-3-flash-preview"]
 
 # 后续 tick 工具执行模型组：会生成 shell/CLI 动作并直接影响 Telegram 行为。
 # 记录和质量诊断必须以 llm_model 为准；endpoint name 只用于熔断和传输诊断。
@@ -99,7 +112,7 @@ anime_classify_url = "http://127.0.0.1:39101"
 
 [soul]
 # Alice 的人格核心。default = SOUL.md；ojou = SOUL.ojou.md。
-profile = "ojou"
+profile = "default"
 
 [time]
 # 用户所在时区，UTC+8 写 8，日本写 9。

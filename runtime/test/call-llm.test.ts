@@ -32,7 +32,7 @@ const { generateText } = await import("ai");
 const { executeShellScript } = await import("../src/core/shell-executor.js");
 const { writeAuditEvent } = await import("../src/db/audit.js");
 const { selectProviderForFirstPass } = await import("../src/llm/client.js");
-const { ProviderUnavailableError } = await import("../src/llm/resilience.js");
+const { ProviderUnavailableError, withResilience } = await import("../src/llm/resilience.js");
 const { callTickLLM } = await import("../src/engine/tick/callLLM.js");
 const { normalizeScript, parseTickStep } = await import("../src/llm/schemas.js");
 
@@ -116,6 +116,8 @@ describe("callTickLLM", () => {
 
     const firstCall = vi.mocked(generateText).mock.calls[0]?.[0];
     expect(firstCall?.messages?.[0]?.content).toBe("system prompt");
+    expect(firstCall?.maxRetries).toBe(0);
+    expect(vi.mocked(withResilience).mock.calls[0]?.[1]).toMatchObject({ maxRetries: 0 });
     expect(firstCall).not.toHaveProperty("schema");
   });
 
@@ -505,7 +507,7 @@ describe("callTickLLM", () => {
     expect(vi.mocked(writeAuditEvent)).toHaveBeenCalledTimes(1);
   });
 
-  it("provider 401/403 状态会分类为基础设施不可用", async () => {
+  it("provider 401/402/403 状态会分类为基础设施不可用", async () => {
     const err = Object.assign(new Error("request failed"), { statusCode: 401 });
     vi.mocked(generateText).mockRejectedValue(err);
 
@@ -520,6 +522,49 @@ describe("callTickLLM", () => {
 
     expect(result).toMatchObject({ ok: false, failureKind: "provider_unavailable" });
     expect(vi.mocked(executeShellScript)).not.toHaveBeenCalled();
+  });
+
+  it("provider 余额不足状态会分类为基础设施不可用", async () => {
+    const err = Object.assign(new Error("Insufficient Balance"), { statusCode: 402 });
+    vi.mocked(generateText).mockRejectedValue(err);
+
+    const result = await callTickLLM(
+      "system prompt",
+      "user prompt",
+      14,
+      "channel:1",
+      "conversation",
+      {},
+    );
+
+    expect(result).toMatchObject({ ok: false, failureKind: "provider_unavailable" });
+    expect(vi.mocked(executeShellScript)).not.toHaveBeenCalled();
+  });
+
+  it("失败审计优先记录 tick 入口传入的 provider，而不是重新抽样 firstPass", async () => {
+    const selectedProvider = {
+      provider: vi.fn((model: string) => ({ model })),
+      model: "tick-model",
+      name: "tick-provider",
+    };
+    vi.mocked(generateText).mockRejectedValue(new Error("boom"));
+
+    const result = await callTickLLM(
+      "system prompt",
+      "user prompt",
+      14,
+      "channel:1",
+      "conversation",
+      {},
+      selectedProvider as never,
+    );
+
+    expect(result).toMatchObject({ ok: false, failureKind: "llm_invalid" });
+    expect(vi.mocked(writeAuditEvent)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(writeAuditEvent).mock.calls[0]?.[4]).toMatchObject({
+      provider: "tick-provider",
+      model: "tick-model",
+    });
   });
 
   it("修正耗尽时直接失败，不再升级到第二套 transport", async () => {

@@ -20,7 +20,12 @@ import type {
 } from "../../core/script-execution.js";
 import { executeShellScript } from "../../core/shell-executor.js";
 import { withResilience } from "../../llm/resilience.js";
-import { ADR233_TOOLS, type Afterward, extractToolUseParams } from "../../llm/tools.js";
+import {
+  ADR233_TOOLS,
+  type Afterward,
+  extractToolUseParams,
+  isAfterward,
+} from "../../llm/tools.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("tick/tc-loop");
@@ -154,6 +159,10 @@ export function collectStopLossErrors(
   return [...found];
 }
 
+function normalizeSignalAfterward(value: unknown): Afterward {
+  return isAfterward(value) ? value : "done";
+}
+
 /**
  * 运行 TC 循环 — 使用 shell-executor 执行（复用 docker.ts persistent session）。
  */
@@ -198,14 +207,17 @@ export async function runTCLoop(ctx: TCLoopContext): Promise<TCLoopResult> {
       const choice: ToolChoice = toolCallCount === 0 ? "required" : "auto";
       const response = await withResilience(
         () =>
-          ctx.openai.chat.completions.create({
-            model: ctx.model,
-            messages,
-            tools: ADR233_TOOLS,
-            tool_choice: choice,
-            temperature: 0.7,
-          }),
-        {},
+          ctx.openai.chat.completions.create(
+            {
+              model: ctx.model,
+              messages,
+              tools: ADR233_TOOLS,
+              tool_choice: choice,
+              temperature: 0.7,
+            },
+            { maxRetries: 0 },
+          ),
+        { maxRetries: 0 },
         ctx.providerName,
       );
 
@@ -351,7 +363,7 @@ export async function runTCLoop(ctx: TCLoopContext): Promise<TCLoopResult> {
           }
         } else if (name === SIGNAL_TOOL_NAME) {
           signalCallCount++;
-          const sig = String(args.afterward ?? "done") as Afterward;
+          const sig = normalizeSignalAfterward(args.afterward);
           afterward = sig;
           const ack = `ack: ${sig}`;
 

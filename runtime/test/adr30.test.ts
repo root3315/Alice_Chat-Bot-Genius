@@ -81,7 +81,7 @@ describe("ADR-181: 焦点集不含 mood 调制", () => {
     const G = new WorldModel();
     G.tick = 100;
     G.addAgent("self", { mood_effective: 1.0 });
-    G.addChannel("ch1");
+    G.addChannel("ch1", { chat_type: "private" });
     const tensionMap = makeTensionMap([["ch1", { tau1: 10, tau2: 5, tau6: 3 }]]);
 
     const result = computeFocalSets(tensionMap, G, 100, { uncertainty: 0, nowMs: tickMs(100) });
@@ -251,7 +251,7 @@ describe("ADR-30: digest action semantics", () => {
   it("digest 应该清除 unread + 设置 recently_cleared_ms + 衰减 relevance", () => {
     // 验证 executeDigest 的语义（直接测试图操作）
     const G = new WorldModel();
-    G.addChannel("ch1", { unread: 50, activity_relevance: 0.8 });
+    G.addChannel("ch1", { chat_type: "private", unread: 50, activity_relevance: 0.8 });
 
     // 模拟 executeDigest
     G.setDynamic("ch1", "unread", 0);
@@ -267,7 +267,7 @@ describe("ADR-30: digest action semantics", () => {
 
   it("多次 digest 累积衰减 activity_relevance", () => {
     const G = new WorldModel();
-    G.addChannel("ch1", { activity_relevance: 1.0 });
+    G.addChannel("ch1", { chat_type: "private", activity_relevance: 1.0 });
 
     // 模拟 10 次 digest
     for (let i = 0; i < 10; i++) {

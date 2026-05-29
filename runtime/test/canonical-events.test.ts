@@ -38,6 +38,7 @@ describe("CanonicalEvent seam", () => {
     });
     expect(perturbationFromCanonical(canonical)).toMatchObject({
       type: "new_message",
+      chatType: "group",
       tick: 12,
       nowMs: 123456,
       channelId: "channel:1",

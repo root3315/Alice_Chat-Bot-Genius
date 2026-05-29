@@ -71,7 +71,7 @@ describe("WorldModel", () => {
     const G = new WorldModel();
     G.addContact("c1");
     G.addContact("c2");
-    G.addChannel("ch1");
+    G.addChannel("ch1", { chat_type: "private" });
     G.addThread("t1");
 
     expect(G.getEntitiesByType("contact")).toEqual(["c1", "c2"]);
@@ -121,7 +121,7 @@ describe("WorldModel", () => {
     const G = new WorldModel();
     G.addContact("a");
     G.addContact("b");
-    G.addChannel("ch");
+    G.addChannel("ch", { chat_type: "private" });
     G.addRelation("a", "friend", "b");
     G.addRelation("a", "monitors", "ch");
 
@@ -147,7 +147,7 @@ describe("WorldModel", () => {
     const G = new WorldModel();
     G.addContact("a");
     G.addContact("b");
-    G.addChannel("ch");
+    G.addChannel("ch", { chat_type: "private" });
     G.addRelation("a", "friend", "b");
     G.addRelation("a", "monitors", "ch");
     G.addRelation("b", "joined", "ch");

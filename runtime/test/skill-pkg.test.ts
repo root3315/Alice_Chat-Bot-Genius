@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { installSkill, removeSkill, rollbackSkill, upgradeSkill } from "../src/skills/pkg.js";
 import { getEntry } from "../src/skills/registry.js";

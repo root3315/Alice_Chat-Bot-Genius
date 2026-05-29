@@ -17,6 +17,11 @@ import { setExplorationGuard, TELEGRAM_ACTION_MAP } from "../src/telegram/action
 import * as actions from "../src/telegram/actions.js";
 import { ExplorationGuard } from "../src/telegram/exploration-guard.js";
 
+vi.mock("../src/llm/tts.js", () => ({
+  isTTSEnabled: vi.fn(() => true),
+  textToSpeech: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+}));
+
 // ── Mock telegram/actions.js ────────────────────────────────────────────────
 
 vi.mock("../src/telegram/actions.js", () => ({
@@ -77,6 +82,7 @@ vi.mock("../src/telegram/actions.js", () => ({
   getHistory: vi.fn().mockResolvedValue([]),
   getMessages: vi.fn().mockResolvedValue([]),
   setTyping: vi.fn().mockResolvedValue(undefined),
+  sendVoice: vi.fn().mockResolvedValue(321),
 }));
 
 // ── Mock sticker-palette（send_sticker impl 依赖）──────────────────────────
@@ -229,6 +235,22 @@ describe("sendMessageImpl", () => {
       msgId: undefined,
     });
     expect(ctx.dispatcher.dispatch).toHaveBeenCalledWith("DECLARE_ACTION", { target: "channel:1" });
+  });
+
+  it("send_voice 记录自然文本和媒体类型，不把 voice 标签混进文本", async () => {
+    const voiceImpl = getImpl("send_voice");
+
+    await voiceImpl(ctx, { chatId: 1, text: "hello in voice", emotion: "calm" });
+
+    expect(ctx.dispatcher.dispatch).toHaveBeenCalledWith("SEND_MESSAGE", {
+      chatId: "channel:1",
+      text: "hello in voice",
+      mediaType: "voice",
+    });
+    expect(ctx.dispatcher.dispatch).not.toHaveBeenCalledWith("SEND_MESSAGE", {
+      chatId: "channel:1",
+      text: "(voice: hello in voice)",
+    });
   });
 
   it("replyTo + mentions 正确传递", async () => {

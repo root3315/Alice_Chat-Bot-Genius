@@ -81,7 +81,7 @@ describe("buildSocialPanorama", () => {
     G.addContact("contact:telegram:42", { tier: 15, display_name: "Rin" });
     G.addRelation("self", "acquaintance", "contact:telegram:42");
     // 模拟私聊 channel 的 last_shared_ms
-    G.addChannel("channel:telegram:42");
+    G.addChannel("channel:telegram:42", { chat_type: "private" });
     G.setDynamic("channel:telegram:42", "last_shared_ms", NOW - 30 * 60_000); // 30 分钟前
 
     const lines = buildSocialPanorama(G, {}, {}, NOW);
@@ -92,7 +92,7 @@ describe("buildSocialPanorama", () => {
     const G = makeGraph();
     G.addContact("contact:telegram:42", { tier: 15, display_name: "Rin" });
     G.addRelation("self", "acquaintance", "contact:telegram:42");
-    G.addChannel("channel:telegram:42");
+    G.addChannel("channel:telegram:42", { chat_type: "private" });
     G.setDynamic("channel:telegram:42", "last_shared_ms", NOW - 2 * 3_600_000); // 2 小时前
 
     const lines = buildSocialPanorama(G, {}, {}, NOW);
@@ -104,7 +104,7 @@ describe("buildSocialPanorama", () => {
     G.addContact("contact:telegram:99", { tier: 15, display_name: "Mia" });
     G.addRelation("self", "acquaintance", "contact:telegram:99");
     // 直接在目标私聊节点写 last_shared_ms（模拟转发后双写）
-    G.addChannel("channel:telegram:99");
+    G.addChannel("channel:telegram:99", { chat_type: "private" });
     G.setDynamic("channel:telegram:99", "last_shared_ms", NOW - 10 * 60_000); // 10 分钟前
     const lines = buildSocialPanorama(G, {}, {}, NOW);
     expect(lines[0]).toContain("shared recently");

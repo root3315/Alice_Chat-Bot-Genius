@@ -9,6 +9,8 @@ import { appraiseWarmReturnRepair } from "../../emotion/appraisal.js";
 import { recordEmotionEpisode } from "../../emotion/graph.js";
 import { readSocialReception, readSocialReceptionMs } from "../../graph/dynamic-props.js";
 import type { WorldModel } from "../../graph/world-model.js";
+import { isTransportChannelTarget } from "../../platform/transport.js";
+import { ChatTarget } from "../../prompt/types.js";
 import { ALICE_GROUP_RECEPTION_SHADOW_LOG_PATH, ensureParentDir } from "../../runtime-paths.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -385,9 +387,9 @@ function isGroupChannel(graph: WorldModel, channelId: string): boolean {
   if (graph.getNodeType(channelId) !== "channel") return false;
 
   const chatType = graph.getChannel(channelId).chat_type;
-  if (chatType !== "group" && chatType !== "supergroup") return false;
+  if (!ChatTarget.isGroupChat(chatType)) return false;
 
-  return channelId.startsWith("channel:-");
+  return isTransportChannelTarget(channelId);
 }
 
 function classifyReception(

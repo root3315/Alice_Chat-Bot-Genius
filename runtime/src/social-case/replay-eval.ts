@@ -217,7 +217,11 @@ export const SOCIAL_CASE_REPLAY_SCENARIOS: readonly SocialCaseReplayScenario[] =
         "Mostly repaired, with a boundary",
         "In 技术群",
       ],
-      forbiddenText: ["angry and spoke too harshly", "contact:telegram:42", "channel:telegram:-1001"],
+      forbiddenText: [
+        "angry and spoke too harshly",
+        "contact:telegram:42",
+        "channel:telegram:-1001",
+      ],
       forbidInternalTerms: true,
     },
     candidate: {
@@ -253,7 +257,11 @@ export const SOCIAL_CASE_REPLAY_SCENARIOS: readonly SocialCaseReplayScenario[] =
         "Social case with A",
         "A repeat of the same harm would reopen the case",
       ],
-      forbiddenText: ["angry and spoke too harshly", "contact:telegram:42", "channel:telegram:-1001"],
+      forbiddenText: [
+        "angry and spoke too harshly",
+        "contact:telegram:42",
+        "channel:telegram:-1001",
+      ],
       forbidInternalTerms: true,
     },
     candidate: {
@@ -330,7 +338,11 @@ export const SOCIAL_CASE_REPLAY_SCENARIOS: readonly SocialCaseReplayScenario[] =
     prompt: {
       socialCaseVisible: true,
       requiredText: ["Social case with A", "Mostly repaired, with a boundary"],
-      forbiddenText: ["angry and spoke too harshly", "contact:telegram:42", "channel:telegram:-1001"],
+      forbiddenText: [
+        "angry and spoke too harshly",
+        "contact:telegram:42",
+        "channel:telegram:-1001",
+      ],
       forbidInternalTerms: true,
     },
     candidate: {

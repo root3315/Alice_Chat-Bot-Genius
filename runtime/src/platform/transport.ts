@@ -1,5 +1,16 @@
 export type TransportTargetKind = "channel" | "contact";
 
+declare const transportTargetStableIdBrand: unique symbol;
+declare const transportMessageStableIdBrand: unique symbol;
+
+export type TransportTargetStableId = string & {
+  readonly [transportTargetStableIdBrand]: "TransportTargetStableId";
+};
+
+export type TransportMessageStableId = string & {
+  readonly [transportMessageStableIdBrand]: "TransportMessageStableId";
+};
+
 export interface TransportTargetRef {
   kind: TransportTargetKind;
   platform: string;
@@ -8,12 +19,53 @@ export interface TransportTargetRef {
   legacy: boolean;
 }
 
+export type ParsedTransportTargetRef = TransportTargetRef & {
+  readonly stableId: TransportTargetStableId;
+};
+
+export class TransportTargetId {
+  private constructor(readonly ref: TransportTargetRef) {}
+
+  static parse(value: unknown): TransportTargetId | null {
+    const ref = parseTransportTargetId(value);
+    return ref === null ? null : new TransportTargetId(ref);
+  }
+
+  static isChannel(value: unknown): boolean {
+    return TransportTargetId.parse(value)?.isChannel ?? false;
+  }
+
+  get kind(): TransportTargetKind {
+    return this.ref.kind;
+  }
+
+  get platform(): string {
+    return this.ref.platform;
+  }
+
+  get nativeId(): string {
+    return this.ref.nativeId;
+  }
+
+  get stableId(): string {
+    return this.ref.stableId;
+  }
+
+  get isChannel(): boolean {
+    return this.ref.kind === "channel";
+  }
+}
+
 export interface TransportMessageRef {
   platform: string;
   chatNativeId: string;
   messageNativeId: string;
   stableId: string;
 }
+
+export type ParsedTransportMessageRef = TransportMessageRef & {
+  readonly stableId: TransportMessageStableId;
+};
 
 export interface TransportSendParams {
   target: TransportTargetRef;
@@ -58,9 +110,9 @@ export interface TransportAdapter {
   react?: (params: TransportReactParams) => Promise<TransportReactResult>;
 }
 
-const TELEGRAM_NUMBER_RE = /^-?\d+$/;
 // Bridge protocols are adapter paths, not target platform namespaces.
 // @see docs/adr/265-multi-im-platform-strategy/README.md
+const TELEGRAM_NATIVE_ID_RE = /^-?\d+$/;
 const RESERVED_BRIDGE_PROTOCOL_NAMES = new Set([
   "satori",
   "onebot",
@@ -78,23 +130,47 @@ function isValidTransportPlatform(value: string): boolean {
   return value.length > 0 && !isReservedBridgeProtocolName(value);
 }
 
+function stableTransportTargetIdValue(
+  kind: TransportTargetKind,
+  platform: string,
+  nativeId: string,
+): TransportTargetStableId {
+  return `${kind}:${platform.toLowerCase()}:${nativeId}` as TransportTargetStableId;
+}
+
 function normalizeStableTarget(
   kind: TransportTargetKind,
   platform: string,
   nativeId: string,
   legacy: boolean,
-): TransportTargetRef {
+): ParsedTransportTargetRef {
   const normalizedPlatform = platform.toLowerCase();
   return {
     kind,
     platform: normalizedPlatform,
     nativeId,
-    stableId: `${kind}:${normalizedPlatform}:${nativeId}`,
+    stableId: stableTransportTargetIdValue(kind, normalizedPlatform, nativeId),
     legacy,
   };
 }
 
-export function parseTransportTargetId(value: unknown): TransportTargetRef | null {
+export function stableTransportTargetId(
+  kind: TransportTargetKind,
+  platform: string,
+  nativeId: string | number,
+): TransportTargetStableId {
+  return stableTransportTargetIdValue(kind, platform, String(nativeId));
+}
+
+export function transportTargetRef(
+  kind: TransportTargetKind,
+  platform: string,
+  nativeId: string | number,
+): ParsedTransportTargetRef {
+  return normalizeStableTarget(kind, platform, String(nativeId), false);
+}
+
+export function parseTransportTargetId(value: unknown): ParsedTransportTargetRef | null {
   if (typeof value !== "string" || value.length === 0) return null;
 
   const parts = value.split(":");
@@ -107,14 +183,14 @@ export function parseTransportTargetId(value: unknown): TransportTargetRef | nul
     return normalizeStableTarget(parts[0], parts[1], parts[2], false);
   }
 
-  if (parts.length === 2 && parts[0] === "channel" && TELEGRAM_NUMBER_RE.test(parts[1])) {
-    return normalizeStableTarget("channel", "telegram", parts[1], true);
-  }
-
   return null;
 }
 
-export function parseTransportMessageId(value: unknown): TransportMessageRef | null {
+export function isTransportChannelTarget(value: unknown): boolean {
+  return TransportTargetId.isChannel(value);
+}
+
+export function parseTransportMessageId(value: unknown): ParsedTransportMessageRef | null {
   if (typeof value !== "string" || value.length === 0) return null;
 
   const parts = value.split(":");
@@ -130,7 +206,7 @@ export function parseTransportMessageId(value: unknown): TransportMessageRef | n
       platform,
       chatNativeId: parts[2],
       messageNativeId: parts[3],
-      stableId: `message:${platform}:${parts[2]}:${parts[3]}`,
+      stableId: stableTransportMessageId(platform, parts[2], parts[3]),
     };
   }
 
@@ -141,12 +217,27 @@ export function stableTransportMessageId(
   platform: string,
   chatNativeId: string,
   messageNativeId: string | number,
-): string {
-  return `message:${platform.toLowerCase()}:${chatNativeId}:${messageNativeId}`;
+): TransportMessageStableId {
+  return `message:${platform.toLowerCase()}:${chatNativeId}:${messageNativeId}` as TransportMessageStableId;
+}
+
+export function transportMessageRef(
+  platform: string,
+  chatNativeId: string | number,
+  messageNativeId: string | number,
+): ParsedTransportMessageRef {
+  const chatId = String(chatNativeId);
+  const msgId = String(messageNativeId);
+  return {
+    platform: platform.toLowerCase(),
+    chatNativeId: chatId,
+    messageNativeId: msgId,
+    stableId: stableTransportMessageId(platform, chatId, msgId),
+  };
 }
 
 export function parseTelegramNativeId(value: string): number | null {
-  if (!TELEGRAM_NUMBER_RE.test(value)) return null;
+  if (!TELEGRAM_NATIVE_ID_RE.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
 }

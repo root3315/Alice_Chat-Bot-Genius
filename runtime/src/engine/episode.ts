@@ -293,21 +293,12 @@ const LN2 = Math.LN2;
  * 在 evolve.ts 的 channelPressures 构造后、updateAttentionDebt 前调用。
  */
 export function injectResidueContributions(
-  activeResidues: ActiveResidue[],
-  channelPressures: Map<string, number>,
-  nowMs: number,
+  _activeResidues: ActiveResidue[],
+  _channelPressures: Map<string, number>,
+  _nowMs: number,
 ): void {
-  for (const { residue } of activeResidues) {
-    if (!residue.toward) continue;
-    const age = nowMs - residue.createdMs;
-    if (age > RESIDUE_MAX_AGE_MS) continue;
-
-    const contribution = residue.intensity * Math.exp((-LN2 * age) / residue.decayHalfLifeMs);
-    if (contribution < RESIDUE_MIN_CONTRIBUTION) continue;
-
-    const prev = channelPressures.get(residue.toward) ?? 0;
-    channelPressures.set(residue.toward, prev + contribution);
-  }
+  // ADR-274 W3.5: residue is not a trusted runtime control input.
+  // Keep the API as a no-op while W4 replaces it with typed target-bound continuity.
 }
 
 /**
@@ -421,7 +412,7 @@ export interface ActOutcomeSignals {
  * - llmResidue：LLM 在 TickStepSchema.residue 中直接表达的认知残留（语义归 LLM）
  * - signals：processResult 的结构信号（messageSent/error/silence）
  *
- * 合并规则：LLM 说了听 LLM 的，LLM 没说但结构上明确失败 → 代码兜底。
+ * 合并规则：LLM 明确表达的认知残留才写入 residue；运行时失败不伪装成未完成想法。
  *
  * @see docs/adr/215-cognitive-episode-graph.md
  */
@@ -463,7 +454,7 @@ export function closeEpisodeFromAct(
     log.debug("Episode closed from act", {
       episodeId,
       outcome,
-      residueSource: llmResidue ? "llm" : residue ? "structural_fallback" : "none",
+      residueSource: llmResidue ? "llm" : "none",
       residueType: residue?.type ?? "none",
     });
   } catch (e) {
@@ -490,9 +481,7 @@ const FEELING_INTENSITY: Record<string, number> = {
   settled: 0,
 };
 
-/**
- * 双源融合：LLM residue 优先，结构信号兜底。
- */
+/** LLM residue 归一化。运行时失败不再生成结构兜底 residue。 */
 function mergeResidue(
   llm: import("../llm/schemas.js").LLMResidue | undefined,
   outcome: string,
@@ -505,7 +494,6 @@ function mergeResidue(
     pressure: 0,
   };
 
-  // ── LLM 主源 ──
   if (llm) {
     if (llm.feeling === "settled") return null; // LLM 说没事 → 没事
     const type = FEELING_MAP[llm.feeling] ?? "unresolved_emotion";
@@ -520,22 +508,10 @@ function mergeResidue(
     };
   }
 
-  // ── 结构兜底（LLM 没填 residue 但结构上明确失败）──
-  if (!signals.success && !signals.messageSent) {
-    return {
-      type: "unfinished",
-      ...raw,
-      intensity: 0.4, // 兜底 intensity 低于 LLM 主动报告的
-      toward: null,
-      decayHalfLifeMs: RESIDUE_HALF_LIFE.unfinished,
-      createdMs: nowMs,
-    };
-  }
-
   return null;
 }
 
 /** 将 LLM 输出的任意格式 ID 统一为 graph node ID。 */
 function ensureNodeId(id: string): string | null {
-  return ensureContactId(id) ?? ensureChannelId(id) ?? null;
+  return ensureChannelId(id) ?? ensureContactId(id) ?? null;
 }

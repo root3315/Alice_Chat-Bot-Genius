@@ -617,10 +617,7 @@ describe("strategy.mod — overnight_briefing", () => {
     state.recentActions.push({ target: "channel:telegram:1", tick: 30, intent: "reply" });
 
     const ctx = makeCtx(state, 100); // 静默 70 ticks > 60
-    ctx.graph.addChannel("channel:morning", {
-      unread: 8,
-      pending_directed: 2,
-    });
+    ctx.graph.addChannel("channel:morning", { chat_type: "group", unread: 8, pending_directed: 2 });
 
     onTickEnd(ctx as unknown as ModContext<StrategyState>);
 
@@ -637,7 +634,7 @@ describe("strategy.mod — overnight_briefing", () => {
     state.recentActions.push({ target: "channel:telegram:1", tick: 80, intent: "reply" });
 
     const ctx = makeCtx(state, 100); // 静默 20 ticks < 60
-    ctx.graph.addChannel("channel:active", { unread: 10 });
+    ctx.graph.addChannel("channel:active", { chat_type: "group", unread: 10 });
 
     onTickEnd(ctx as unknown as ModContext<StrategyState>);
 
@@ -889,7 +886,7 @@ describe("strategy.mod — M2 group-dynamics contribute", () => {
     ];
 
     const ctx = makeCtx(state, 100);
-    ctx.graph.addChannel("channel:active", { display_name: "ActiveGroup" });
+    ctx.graph.addChannel("channel:active", { chat_type: "group", display_name: "ActiveGroup" });
     const items = contribute(ctx as unknown as ModContext<StrategyState>);
     const groupItem = items.find((i) => i.key?.startsWith("group-dynamics-"));
     expect(groupItem).toBeTruthy();

@@ -21,6 +21,11 @@ import type { Config } from "../../config.js";
 // ADR-214 Wave A: ExecutionStats, executeRecordedActions, mergeScriptExecutionResults 已删除。
 // applyFeedbackArc 不再被调用。Wave B 将清理。
 import type { Dispatcher } from "../../core/dispatcher.js";
+import {
+  type CompletedAction,
+  completedActionFacts,
+  type ScriptExecutionResult,
+} from "../../core/script-execution.js";
 import { getDb } from "../../db/connection.js";
 import { writeQueueTrace } from "../../db/observation-spine.js";
 import { extractNumericId, PRESSURE_TYPICAL_SCALES } from "../../graph/constants.js";
@@ -55,6 +60,14 @@ const log = createLogger("react:orchestrator");
 
 /** afterward=resting 的最小结构化离席窗口。更长的夜间节律由 dormant FSM 接管。 */
 const RESTING_DURATION_MS = 30 * 60 * 1000;
+
+function isConversationOutput(action: CompletedAction): boolean {
+  return action.kind === "sent" || action.kind === "voice" || action.kind === "sticker";
+}
+
+function hasConversationOutput(result: ScriptExecutionResult): boolean {
+  return completedActionFacts(result).some(isConversationOutput);
+}
 
 // ── ActContext: 行动循环上下文（与旧 loop.ts 兼容）────────────────────────
 
@@ -144,8 +157,11 @@ async function finalizeSlot(ctx: ActContext, slot: EngagementSlot): Promise<void
     // 区分：真实 Telegram 行动（有 completedActions）vs 内部行动（silence/observe/llm_failed）
     // 两者都消耗注意力预算，但内部行动的 socialCost 和 netValue 计算方式不同
     ctx.recordAction(item.action, item.target);
-    // ADR-190: 通知 evolve 线程 LLM 调用结果，驱动调度层指数退避
-    ctx.reportLLMOutcome(session.outcome !== "llm_failed");
+    // ADR-274: provider outage / quota is runtime health, not LLM quality backoff.
+    // Billing incidents already block execution; they must not also poison cadence.
+    ctx.reportLLMOutcome(
+      session.outcome !== "llm_failed" || session.failureKind === "provider_unavailable",
+    );
   } finally {
     // 释放可观测性信号
     releaseSlot(ctx, slot);
@@ -344,7 +360,7 @@ export async function startReActLoop(ctx: ActContext): Promise<void> {
       const prevMessageCount = next.liveMessages.length;
       const chatType =
         next.item.target && ctx.G.has(next.item.target)
-          ? (ctx.G.getChannel(next.item.target).chat_type ?? undefined)
+          ? ctx.G.getChannel(next.item.target).chat_type
           : undefined;
       next.liveMessages = await fetchRecentMessages(ctx.client, next.targetChatId, ctx.config, {
         chatType,
@@ -353,10 +369,7 @@ export async function startReActLoop(ctx: ActContext): Promise<void> {
       // D2: Observation Quality Gate — 频道无新消息时跳过 LLM 调用。
       // 私聊/群组不检查——Alice 应主动参与对话，不依赖"有新消息"触发。
       // @see docs/adr/242-command-interface-standardization.md §Phase 3
-      if (
-        ChatTarget.isChannelChat(chatType ?? "private") &&
-        next.liveMessages.length <= prevMessageCount
-      ) {
+      if (ChatTarget.isChannelChat(chatType) && next.liveMessages.length <= prevMessageCount) {
         log.info("D2: No new messages since last subcycle → terminate", {
           target: next.item.target,
           subcycle: next.session.subcycle,
@@ -418,7 +431,17 @@ export async function startReActLoop(ctx: ActContext): Promise<void> {
       if (sub.outcome === "empty") {
         next.session.outcome = "llm_failed";
       } else if (sub.outcome === "resting") {
-        next.session.outcome = "resting";
+        const hasVisibleEffect = hasConversationOutput(sub.execution);
+        next.session.outcome = hasVisibleEffect ? "resting" : "complete";
+        if (!hasVisibleEffect) {
+          log.info("resting ignored for non-visible action", {
+            target: next.targetChannelId,
+            completedActions: sub.execution.completedActions,
+          });
+          next.state = "done";
+          active = cleanupDoneSlots(ctx, active, pendingFinalizations);
+          continue;
+        }
         const now = Date.now();
         if (ctx.G.has("self")) {
           ctx.G.updateAgent("self", {
@@ -446,7 +469,18 @@ export async function startReActLoop(ctx: ActContext): Promise<void> {
           }
         }
       } else if (sub.outcome === "fed_up" || sub.outcome === "cooling_down") {
-        next.session.outcome = sub.outcome;
+        const hasVisibleEffect = hasConversationOutput(sub.execution);
+        next.session.outcome = hasVisibleEffect ? sub.outcome : "complete";
+        if (!hasVisibleEffect) {
+          log.info("leave/cooling ignored for non-visible action", {
+            target: next.targetChannelId,
+            outcome: sub.outcome,
+            completedActions: sub.execution.completedActions,
+          });
+          next.state = "done";
+          active = cleanupDoneSlots(ctx, active, pendingFinalizations);
+          continue;
+        }
         // 告别承诺：将 target 的活跃 conversation 转为 closing + turn_state: closed。
         // LLM 决定离开（语义），代码执行结构性后果（状态机）。
         if (next.targetChannelId) {

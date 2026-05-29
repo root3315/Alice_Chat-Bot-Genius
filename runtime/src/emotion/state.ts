@@ -162,9 +162,9 @@ export function deriveEmotionControlPatch(state: EmotionState): EmotionControlPa
     patch.actionCaps.proactiveMessages = 1;
   }
 
-  const shortPressure = tired * 0.35 + annoyed * 0.25 + flat * 0.25 + shy * 0.12 + hurt * 0.08;
-  patch.styleBudget.maxCharsMultiplier = Math.max(0.55, 1 - shortPressure);
-  patch.styleBudget.preferShort = tired >= 0.25 || annoyed >= 0.25 || flat >= 0.25 || shy >= 0.35;
+  const shortPressure = tired * 0.22 + annoyed * 0.16 + flat * 0.14 + shy * 0.12 + hurt * 0.06;
+  patch.styleBudget.maxCharsMultiplier = Math.max(0.68, 1 - shortPressure);
+  patch.styleBudget.preferShort = tired >= 0.45 || annoyed >= 0.45 || flat >= 0.45 || shy >= 0.35;
   patch.styleBudget.allowVulnerability = touched >= 0.2;
   patch.styleBudget.avoidSelfProof = hurt >= 0.2;
   patch.styleBudget.avoidCruelty = true;

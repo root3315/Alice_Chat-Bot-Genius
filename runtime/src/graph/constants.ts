@@ -370,11 +370,7 @@ function parsePlatformEntityId(
   };
 }
 
-/**
- * 从任何实体 ID（channel:xxx, contact:xxx, 纯数字字符串）提取 Telegram 数字 ID。
- * 非法格式（如 "channel:abc"）返回 null。
- * @see docs/adr/155-branded-graph-id.md
- */
+/** 从 Telegram 实体 ID 或 Telegram 原生数字标记中提取数字 ID。 */
 export function extractNumericId(id: string): TelegramId | null {
   let raw: string;
   const parsed = parsePlatformEntityId(id);
@@ -392,15 +388,15 @@ export function extractNumericId(id: string): TelegramId | null {
 
 /**
  * 确保 ID 为 channel 格式。
- * 新写入统一使用平台限定 ID。
+ * 只接受显式平台限定的 channel/contact ID；Telegram 原生数字必须在调用点显式使用
+ * telegramChannelId()。
  * @see docs/adr/155-branded-graph-id.md
  */
 export function ensureChannelId(id: string): ChannelNodeId | null {
   const parsed = parsePlatformEntityId(id);
   if (parsed?.kind === "channel") return id as ChannelNodeId;
   if (parsed?.kind === "contact") return platformChannelId(parsed.platform, parsed.nativeId);
-  const n = extractNumericId(id);
-  return n != null ? telegramChannelId(n) : null;
+  return null;
 }
 
 // -- Perceive Facts 常量 (ADR-160) ------------------------------------------
@@ -462,15 +458,15 @@ export const EMOTIONAL_NOTED_THRESHOLD = 0.2;
 
 /**
  * 确保 ID 为 contact 格式（contact:xxx）。
- * 接受 channel:xxx、contact:xxx、纯数字字符串。非法格式返回 null。
+ * 只接受显式平台限定的 channel/contact ID；Telegram 原生数字必须在调用点显式使用
+ * telegramContactId()。
  * @see docs/adr/155-branded-graph-id.md
  */
 export function ensureContactId(id: string): ContactNodeId | null {
   const parsed = parsePlatformEntityId(id);
   if (parsed?.kind === "contact") return id as ContactNodeId;
   if (parsed?.kind === "channel") return platformContactId(parsed.platform, parsed.nativeId);
-  const n = extractNumericId(id);
-  return n != null ? telegramContactId(n) : null;
+  return null;
 }
 
 /**
@@ -486,13 +482,9 @@ export function resolveContactAndChannel(
   const contactId = ensureContactId(target);
   const parsed = parsePlatformEntityId(target);
   const mirroredContactId =
-    parsed?.kind === "channel"
-      ? platformContactId(parsed.platform, parsed.nativeId)
-      : null;
+    parsed?.kind === "channel" ? platformContactId(parsed.platform, parsed.nativeId) : null;
   const mirroredChannelId =
-    parsed?.kind === "contact"
-      ? platformChannelId(parsed.platform, parsed.nativeId)
-      : null;
+    parsed?.kind === "contact" ? platformChannelId(parsed.platform, parsed.nativeId) : null;
   return {
     contactId:
       contactId && has(contactId)

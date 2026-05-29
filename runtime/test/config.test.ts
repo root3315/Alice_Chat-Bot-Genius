@@ -315,7 +315,6 @@ group_id_env = "TEST_TTS_GROUP_ID"
         "channel:telegram:-1001234567890 # 主群",
         "",
         "channel:telegram:7785440246",
-        "-1001234567890",
       ].join("\n"),
       "utf-8",
     );
@@ -369,7 +368,7 @@ whitelist = ["channel:telegram:-1001234567890", "channel:telegram:7785440246"]
     }
   });
 
-  it("兼容 TOML 内联裸 Telegram 数字白名单", async () => {
+  it("拒绝 TOML 内联裸 Telegram 数字白名单", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "alice-focus-whitelist-telegram-"));
     const configPath = join(tempDir, "config.toml");
     writeConfig(
@@ -384,12 +383,7 @@ whitelist = ["-1001234567890", "7785440246"]
     try {
       vi.resetModules();
       const { loadConfig } = await import("../src/config.js");
-      const config = loadConfig();
-
-      expect(Array.from(config.focusWhitelist ?? [])).toEqual([
-        "channel:telegram:-1001234567890",
-        "channel:telegram:7785440246",
-      ]);
+      expect(() => loadConfig()).toThrow(/invalid focus whitelist target "-1001234567890"/u);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -411,7 +405,9 @@ whitelist = ["channel:-1001234567890", "https://t.me/example"]
       vi.resetModules();
       const { loadConfig } = await import("../src/config.js");
 
-      expect(() => loadConfig()).toThrow(/invalid focus whitelist target "channel:-1001234567890"/u);
+      expect(() => loadConfig()).toThrow(
+        /invalid focus whitelist target "channel:-1001234567890"/u,
+      );
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -421,7 +417,7 @@ whitelist = ["channel:-1001234567890", "https://t.me/example"]
     const tempDir = mkdtempSync(join(tmpdir(), "alice-focus-whitelist-explicit-"));
     const whitelistPath = join(tempDir, "custom-focus.txt");
     const configPath = join(tempDir, "config.toml");
-    writeFileSync(whitelistPath, "123456789\n", "utf-8");
+    writeFileSync(whitelistPath, "channel:telegram:123456789\n", "utf-8");
     writeConfig(
       configPath,
       `

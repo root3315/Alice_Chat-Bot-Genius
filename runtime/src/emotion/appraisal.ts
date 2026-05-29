@@ -20,7 +20,6 @@ const LONELY_DEBOUNCE_MS = 2 * 60 * 60_000;
 type ActionFailureClass = "provider" | "telegram" | "validation" | "command" | "script";
 
 const FAILURE_CLASS_BY_CODE: Partial<Record<ScriptExecutionErrorCode, ActionFailureClass>> = {
-  provider_unavailable: "provider",
   timeout: "telegram",
   invalid_reaction: "telegram",
   invalid_sticker_keyword: "telegram",
@@ -213,7 +212,7 @@ export function appraiseActionFailureEmotion(
     const cls = FAILURE_CLASS_BY_CODE[code];
     if (cls) classes.add(cls);
   }
-  if (input.failureKind === "provider_unavailable") classes.add("provider");
+  // ADR-274 W1: provider health is runtime health, not Alice's subjective tiredness.
   if (input.failureKind === "llm_invalid") classes.add("validation");
   if (classes.size === 0 && input.errorCodes.length === 0 && input.failureKind == null) {
     classes.add("validation");

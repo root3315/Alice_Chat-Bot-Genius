@@ -61,9 +61,11 @@ describe("RenderedContext seam", () => {
       directed: true,
       senderIsBot: false,
     });
-    expect(renderedContextToXml(segments)).toBe([
-      '<message channel="channel:1" sender="contact:1" name="Mika" tick="1" t="1000" directed="true">hello &lt;Alice&gt; &amp; friends</message>',
-      '<message channel="channel:1" sender="contact:bot" name="Bot" tick="2" t="2000" continuation="true" bot="true" media="sticker">[sticker]</message>',
-    ].join("\n"));
+    expect(renderedContextToXml(segments)).toBe(
+      [
+        '<message channel="channel:1" sender="contact:1" name="Mika" tick="1" t="1000" directed="true">hello &lt;Alice&gt; &amp; friends</message>',
+        '<message channel="channel:1" sender="contact:bot" name="Bot" tick="2" t="2000" continuation="true" bot="true" media="sticker">[sticker]</message>',
+      ].join("\n"),
+    );
   });
 });

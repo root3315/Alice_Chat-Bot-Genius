@@ -8,9 +8,9 @@
  * 这是 "(a group)" 问题的根治。
  */
 
-import { and, desc, eq, gt, isNotNull, lte } from "drizzle-orm";
+import { and, desc, eq, lte } from "drizzle-orm";
 import { getDb } from "../db/connection.js";
-import { episodes, messageLog, rhythmProfiles, scheduledTasks } from "../db/schema.js";
+import { messageLog, rhythmProfiles, scheduledTasks } from "../db/schema.js";
 import {
   type RhythmConfidence,
   type RhythmEntityType,
@@ -30,7 +30,6 @@ import {
   PeripheralTimelineSource,
   type PeripheralVisionConfig,
   renderTimeline,
-  ThoughtTimelineSource,
 } from "../engine/act/timeline.js";
 import type { ActionQueueItem } from "../engine/action-queue.js";
 import {
@@ -130,9 +129,6 @@ function renderEmotionStyleHint(G: WorldModel, nowMs: number): string | undefine
   const control = readEmotionControlPatch(G, nowMs);
   const lines: string[] = [];
 
-  if (control.styleBudget.preferShort || control.styleBudget.maxCharsMultiplier < 0.85) {
-    lines.push("This round fits a shorter, lower-effort reply.");
-  }
   if (control.styleBudget.allowVulnerability) {
     lines.push("A small bit of warmth can show.");
   }
@@ -526,7 +522,6 @@ function buildTimelineSlot(
   const sources = [
     ...(peripheralConfig ? [new PeripheralTimelineSource(peripheralConfig)] : []),
     new MessageTimelineSource(messages, forwardRegistry),
-    ...(target ? [new ThoughtTimelineSource()] : []),
     ...(observations.length > 0 ? [new ObservationTimelineSource(observations)] : []),
   ];
 
@@ -1017,125 +1012,6 @@ function emptyRhythmDiagnostics(): RhythmProfileProjection["diagnostics"] {
   };
 }
 
-/**
- * 层④ Episode 因果残留。
- *
- * 从 DB episodes 查最新 episode 的 residue，
- * 通过 causedBy 链追溯因果上下文。
- * LLM 用残留维持跨 engagement 连贯性。
- */
-/**
- * Episode carryover — 联系人路由的跨聊天叙事桥。
- *
- * 核心思想：Episode 跟着人走，不跟着聊天走。
- * 当 Alice 在群组 tick 中，如果群内某人和 Alice 在别处有未消解的 episode，
- * 该 residue 注入当前 prompt → LLM 自然接续上下文。
- *
- * 查询逻辑：
- * 1. 从当前 target 提取相关联系人 ID
- * 2. 查询近期 episode 中 entityIds 包含这些联系人的、来自**其他聊天**的 episode
- * 3. 取最近一条有 residue 的，注入 "Previously (elsewhere): ..."
- * 4. 如果没有跨聊天 match，fallback 取同聊天的最近 episode（向后兼容）
- *
- * 精度控制（ADR-221 修正）：
- * - 私聊 tick → 匹配任何包含该联系人的跨聊天 episode（窄匹配，总是相关）
- * - 群组 tick → 只匹配来自**私聊**的 episode（DM→群桥接）。
- *   群→群桥接因共享成员过多会产生噪声（群 A 讨论 StoreOS，群 B 的无关 episode 通过共享成员泄入）
- */
-function buildEpisodeCarryOver(G: WorldModel, target: string | null): string | undefined {
-  try {
-    const db = getDb();
-    const cutoffMs = Date.now() - 4 * 60 * 60 * 1000; // 4h — 与 RESIDUE_MAX_AGE_MS 对齐
-
-    // 收集当前 target 涉及的联系人
-    const relevantContacts = new Set<string>();
-    if (target) {
-      // 私聊：直接提取联系人
-      const cid = ensureContactId(target);
-      if (cid) relevantContacts.add(cid);
-      // 群组：曾在该频道出现的联系人（contact --[joined]--> channel）
-      const channelId = ensureChannelId(target);
-      if (channelId && G.has(channelId)) {
-        for (const neighbor of G.getNeighbors(channelId, "joined")) {
-          if (neighbor.startsWith("contact:")) relevantContacts.add(neighbor);
-        }
-      }
-    }
-
-    // 查询近期有 residue 的 episodes
-    const candidates = db
-      .select({
-        target: episodes.target,
-        entityIds: episodes.entityIds,
-        residue: episodes.residue,
-      })
-      .from(episodes)
-      .where(and(isNotNull(episodes.residue), gt(episodes.createdMs, cutoffMs)))
-      .orderBy(desc(episodes.tickStart))
-      .limit(20)
-      .all();
-
-    // 当前 target 是否是群组（非私聊、非频道）
-    const targetChannelId = target ? ensureChannelId(target) : null;
-    const isGroupTarget =
-      targetChannelId && G.has(targetChannelId)
-        ? !["private", "channel"].includes(G.getChannel(targetChannelId).chat_type ?? "")
-        : false;
-
-    // 优先匹配：跨聊天 + 联系人重叠
-    for (const ep of candidates) {
-      if (!ep.residue || !ep.entityIds) continue;
-      // 跳过同一聊天的 episode（跨聊天才需要桥接）
-      if (ep.target === target) continue;
-
-      // ADR-221 精度控制：群组 tick 只桥接来自私聊的 episode。
-      // 群→群桥接因共享成员过多会产生噪声（off-topic bleed）。
-      if (isGroupTarget && ep.target) {
-        const epChannelId = ensureChannelId(ep.target);
-        const epChatType =
-          epChannelId && G.has(epChannelId) ? G.getChannel(epChannelId).chat_type : null;
-        if (epChatType !== "private") continue;
-      }
-
-      try {
-        const entities: string[] = JSON.parse(ep.entityIds);
-        const overlaps = entities.some((e) => relevantContacts.has(e));
-        if (!overlaps) continue;
-
-        const parsed = JSON.parse(ep.residue);
-        const summary = typeof parsed === "string" ? parsed : (parsed.summary ?? parsed.text);
-        if (typeof summary !== "string" || summary.length === 0) continue;
-
-        // 用来源聊天的 display_name 标注上下文
-        const sourceChannelId = ep.target ? ensureChannelId(ep.target) : null;
-        const sourceName =
-          sourceChannelId && G.has(sourceChannelId)
-            ? G.getChannel(sourceChannelId).display_name
-            : null;
-        const where = sourceName ? ` (in ${sourceName})` : "";
-        return `Previously${where}: ${summary.slice(0, 200)}`;
-      } catch {}
-    }
-
-    // Fallback：同聊天最近 episode（向后兼容）
-    for (const ep of candidates) {
-      if (!ep.residue) continue;
-      if (ep.target !== target) continue;
-      try {
-        const parsed = JSON.parse(ep.residue);
-        const summary = typeof parsed === "string" ? parsed : (parsed.summary ?? parsed.text);
-        if (typeof summary === "string" && summary.length > 0) {
-          return `Previously: ${summary.slice(0, 200)}`;
-        }
-      } catch {}
-    }
-
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 策略 C: Mod State 预收集
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1493,9 +1369,6 @@ export function buildUserPromptSnapshot(input: SnapshotInput): UserPromptSnapsho
       ? readSocialReception(G, ensureChannelId(item.target) ?? item.target) || undefined
       : undefined;
 
-  // ── 层④ Episode 残留（联系人路由：跟着人走，不跟着聊天走）──
-  const episodeCarryOver = buildEpisodeCarryOver(G, item.target ?? null);
-
   // ── 层⑤ 降级行动 ──
   const isDegraded = item.reason?.includes("degraded_action") ?? false;
 
@@ -1534,7 +1407,7 @@ export function buildUserPromptSnapshot(input: SnapshotInput): UserPromptSnapsho
     scheduledEvents,
     riskFlags,
     socialReception,
-    episodeCarryOver,
+    episodeCarryOver: undefined,
     isDegraded,
     openTopic,
     feedItems,

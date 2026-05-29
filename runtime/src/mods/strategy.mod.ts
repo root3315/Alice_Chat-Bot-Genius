@@ -351,10 +351,8 @@ export const strategyMod = createMod<StrategyState>("strategy", {
 
       // 零参与度 → 收集后统一折叠
       if (gs.participationRatio === 0) {
-        const chatType =
-          ctx.graph.has(channelId) && ctx.graph.getNodeType(channelId) === "channel"
-            ? (ctx.graph.getChannel(channelId).chat_type ?? "group")
-            : "group";
+        if (!ctx.graph.has(channelId) || ctx.graph.getNodeType(channelId) !== "channel") continue;
+        const chatType = ctx.graph.getChannel(channelId).chat_type;
         const channelName = safeDisplayName(ctx.graph, channelId);
         // 私聊附带对方名字，群聊显示群名
         const speakerHint =
@@ -383,10 +381,8 @@ export const strategyMod = createMod<StrategyState>("strategy", {
         const topic = chAttrs.topic;
         if (topic) mGroup.kv("Current topic", topic);
       }
-      const chatType =
-        ctx.graph.has(channelId) && ctx.graph.getNodeType(channelId) === "channel"
-          ? (ctx.graph.getChannel(channelId).chat_type ?? "group")
-          : "group";
+      if (!ctx.graph.has(channelId) || ctx.graph.getNodeType(channelId) !== "channel") continue;
+      const chatType = ctx.graph.getChannel(channelId).chat_type;
       const channelName = safeDisplayName(ctx.graph, channelId);
       items.push(
         section(

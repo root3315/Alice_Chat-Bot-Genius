@@ -41,10 +41,12 @@ import type {
 } from "./entities.js";
 import {
   agentDefaults,
+  type ChannelDefaultsInput,
   channelDefaults,
   contactDefaults,
   conversationDefaults,
   factDefaults,
+  requireChannelDefaultsInput,
   threadDefaults,
 } from "./entity-defaults.js";
 
@@ -116,7 +118,7 @@ export class WorldModel {
     this.dirtyNodes.add(nodeId);
   }
 
-  addChannel(nodeId: string, attrs?: Partial<Omit<ChannelAttrs, "entity_type">>): void {
+  addChannel(nodeId: string, attrs: ChannelDefaultsInput): void {
     this.nodes.set(nodeId, { type: "channel", attrs: channelDefaults(attrs) });
     this._ensureEdgeMaps(nodeId);
     this.dirtyNodes.add(nodeId);
@@ -679,7 +681,7 @@ export class WorldModel {
         this.addContact(id, attrs as Partial<Omit<ContactAttrs, "entity_type">>);
         break;
       case "channel":
-        this.addChannel(id, attrs as Partial<Omit<ChannelAttrs, "entity_type">>);
+        this.addChannel(id, requireChannelDefaultsInput(id, attrs));
         break;
       case "thread":
         this.addThread(id, attrs as Partial<Omit<ThreadAttrs, "entity_type">>);

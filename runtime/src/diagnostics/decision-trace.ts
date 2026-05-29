@@ -22,11 +22,12 @@ export function renderDecisionTraceDiagnostic(options: DecisionTraceDiagnosticOp
 
   if (options.json) return JSON.stringify(records, null, 2);
 
-  const title = options.tick !== undefined
-    ? `Decision Trace — tick ${options.tick}`
-    : options.actionLogId !== undefined
-      ? `Decision Trace — action_log ${options.actionLogId}`
-      : "Decision Trace — latest";
+  const title =
+    options.tick !== undefined
+      ? `Decision Trace — tick ${options.tick}`
+      : options.actionLogId !== undefined
+        ? `Decision Trace — action_log ${options.actionLogId}`
+        : "Decision Trace — latest";
 
   const lines = [title, ""];
   if (records.length === 0) {

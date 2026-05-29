@@ -13,6 +13,22 @@
  */
 import type OpenAI from "openai";
 
+/** Signal 工具的 afterward 值 — 单一来源，其他模块 import 此类型。 */
+export const AFTERWARD_VALUES = [
+  "done",
+  "waiting_reply",
+  "watching",
+  "resting",
+  "fed_up",
+  "cooling_down",
+] as const;
+
+export type Afterward = (typeof AFTERWARD_VALUES)[number];
+
+export function isAfterward(value: unknown): value is Afterward {
+  return typeof value === "string" && AFTERWARD_VALUES.includes(value as Afterward);
+}
+
 /**
  * `bash` 工具 — 执行 POSIX sh 脚本（在 Docker 容器中）。
  *
@@ -70,15 +86,15 @@ export const TOOL_SIGNAL: OpenAI.Chat.Completions.ChatCompletionTool = {
       "waiting_reply: you said something and expect their response.\n" +
       "watching: after this turn, stay engaged with this chat because something is still unfolding " +
       "or you want to keep the thread warm. Immediate same-tick follow-up is host-controlled.\n" +
-      "resting: you are tired, going to sleep, or leaving Telegram for a while.\n" +
+      "resting: only when you are actually going to sleep or leaving Telegram for a while; not for ordinary low energy.\n" +
       "fed_up: walk away (closes conversation).\n" +
-      "cooling_down: take a break (freezes chat for ~30 min).",
+      "cooling_down: only when the current room is spammy or toxic and needs distance; freezes chat for ~30 min.",
     parameters: {
       type: "object",
       properties: {
         afterward: {
           type: "string",
-          enum: ["done", "waiting_reply", "watching", "resting", "fed_up", "cooling_down"],
+          enum: AFTERWARD_VALUES,
           description: "How the conversation should continue. Default: done.",
         },
       },
@@ -89,15 +105,6 @@ export const TOOL_SIGNAL: OpenAI.Chat.Completions.ChatCompletionTool = {
 
 /** ADR-233 工具列表 — 导出供 TC 循环使用。 */
 export const ADR233_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [TOOL_BASH, TOOL_SIGNAL];
-
-/** Signal 工具的 afterward 值 — 单一来源，其他模块 import 此类型。 */
-export type Afterward =
-  | "done"
-  | "waiting_reply"
-  | "watching"
-  | "resting"
-  | "fed_up"
-  | "cooling_down";
 
 /**
  * 从 LLM 响应中提取 tool_use 参数。

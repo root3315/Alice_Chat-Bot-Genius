@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   applyCompactionSummary,
+  type CompactionSummary,
   latestApplicableSummary,
   renderCompactedTimeline,
-  type CompactionSummary,
 } from "../src/projection/compaction/summary.js";
 import type { MergedTimelineItem } from "../src/projection/merge/rc-tr-merge.js";
 
@@ -74,9 +74,8 @@ describe("append-only compaction summary", () => {
   });
 
   it("renders summary plus retained timeline", () => {
-    expect(renderCompactedTimeline(applyCompactionSummary(items, summaries))).toBe([
-      '<summary cursor="2500" items="2">new summary</summary>',
-      "rc:3000",
-    ].join("\n"));
+    expect(renderCompactedTimeline(applyCompactionSummary(items, summaries))).toBe(
+      ['<summary cursor="2500" items="2">new summary</summary>', "rc:3000"].join("\n"),
+    );
   });
 });

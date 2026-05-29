@@ -62,6 +62,7 @@ export const memoryMod = createMod<MemoryState>("memory", {
       chatId: z.string().min(1).describe("频道 ID"),
       text: z.string().min(1).describe("消息文本"),
       msgId: z.number().optional().describe("当前聊天可见消息引用号"),
+      mediaType: z.string().optional().describe("媒体类型，例如 voice/photo/sticker"),
     }),
     description: "记录发出的消息到 message_log",
     impl(ctx, args) {
@@ -88,6 +89,7 @@ export const memoryMod = createMod<MemoryState>("memory", {
           senderId: "self",
           senderName: "Alice",
           text,
+          mediaType: args.mediaType ? String(args.mediaType) : undefined,
           isOutgoing: true,
           isDirected: false,
         })

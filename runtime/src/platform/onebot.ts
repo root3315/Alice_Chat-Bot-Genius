@@ -50,6 +50,13 @@ type OneBotAction = "send_group_msg" | "send_private_msg";
 type OneBotMessageSegment =
   | { type: "reply"; data: { id: string | number } }
   | { type: "text"; data: { text: string } };
+type OneBotActionStatus = "ok" | "failed";
+
+export interface OneBotActionResponse {
+  status?: OneBotActionStatus;
+  retcode?: number;
+  messageId: string | number | null;
+}
 
 const NUMERIC_ID_RE = /^-?\d+$/;
 
@@ -68,7 +75,7 @@ function oneBotTextMessage(text: string, replyTo?: TransportMessageRef): OneBotM
   return message;
 }
 
-function parseOneBotJsonResponse(text: string): Record<string, unknown> {
+function parseOneBotJsonObject(text: string): Record<string, unknown> {
   if (text.length === 0) return {};
   const parsed = JSON.parse(text) as unknown;
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -77,7 +84,7 @@ function parseOneBotJsonResponse(text: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function oneBotMessageIdFromResponse(body: Record<string, unknown>): string | number | null {
+function oneBotMessageIdFromBody(body: Record<string, unknown>): string | number | null {
   const data = body.data;
   if (data && typeof data === "object" && !Array.isArray(data)) {
     const messageId = (data as Record<string, unknown>).message_id;
@@ -87,12 +94,29 @@ function oneBotMessageIdFromResponse(body: Record<string, unknown>): string | nu
   return typeof messageId === "string" || typeof messageId === "number" ? messageId : null;
 }
 
+export function parseOneBotActionResponse(text: string): OneBotActionResponse {
+  const body = parseOneBotJsonObject(text);
+  const status = body.status;
+  if (status !== undefined && status !== "ok" && status !== "failed") {
+    throw new Error("OneBot response status must be ok or failed");
+  }
+  const retcode = body.retcode;
+  if (retcode !== undefined && typeof retcode !== "number") {
+    throw new Error("OneBot response retcode must be a number");
+  }
+  return {
+    ...(status === undefined ? {} : { status }),
+    ...(retcode === undefined ? {} : { retcode }),
+    messageId: oneBotMessageIdFromBody(body),
+  };
+}
+
 async function postOneBotAction(
   config: Required<Pick<OneBotTransportConfig, "apiBaseUrl" | "timeoutMs" | "fetch">> &
     Pick<OneBotTransportConfig, "accessToken">,
   action: OneBotAction,
   payload: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
+): Promise<OneBotActionResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
@@ -111,11 +135,10 @@ async function postOneBotAction(
         responseText: bodyText,
       });
     }
-    const body = parseOneBotJsonResponse(bodyText);
-    const retcode = body.retcode;
-    if (body.status === "failed" || (typeof retcode === "number" && retcode !== 0)) {
+    const body = parseOneBotActionResponse(bodyText);
+    if (body.status === "failed" || (typeof body.retcode === "number" && body.retcode !== 0)) {
       throw new OneBotActionError(action, `OneBot ${action} failed`, {
-        retcode: typeof retcode === "number" ? retcode : undefined,
+        retcode: body.retcode,
         responseText: bodyText,
       });
     }
@@ -165,7 +188,7 @@ export function createOneBotTransportAdapter(config: OneBotTransportConfig): Tra
               message: oneBotTextMessage(text, replyTo),
             };
       const body = await postOneBotAction(oneBotConfig, action, payload);
-      const nativeMessageId = oneBotMessageIdFromResponse(body);
+      const nativeMessageId = body.messageId;
       if (nativeMessageId != null) {
         cacheOneBotOutgoingMsg(target.nativeId, nativeMessageId);
       }

@@ -14,6 +14,7 @@
  */
 
 import { resolveContactAndChannel } from "../graph/constants.js";
+import { readDisplayName, readTitle } from "../graph/dynamic-props.js";
 import type { WorldModel } from "../graph/world-model.js";
 import { ChatTarget } from "../prompt/types.js";
 import type { ContributionItem } from "./types.js";
@@ -230,25 +231,25 @@ function filterThreadSection(
 function collectTargetNames(audience: AudienceContext, G: WorldModel): string[] {
   const names: string[] = [];
   if (audience.targetChat && G.has(audience.targetChat)) {
-    const dn = G.getDynamic(audience.targetChat, "display_name");
-    if (dn) names.push(String(dn));
-    const title = G.getDynamic(audience.targetChat, "title");
-    if (title) names.push(String(title));
+    const dn = readDisplayName(G, audience.targetChat);
+    if (dn) names.push(dn);
+    const title = readTitle(G, audience.targetChat);
+    if (title) names.push(title);
 
     // 群成员：通过 joined 边获取群里出现过的联系人
     const isGroup = audience.chatType === "group" || audience.chatType === "supergroup";
     if (isGroup) {
       for (const memberId of G.getNeighbors(audience.targetChat, "joined")) {
         if (G.has(memberId)) {
-          const memberDn = G.getDynamic(memberId, "display_name");
-          if (memberDn) names.push(String(memberDn));
+          const memberDn = readDisplayName(G, memberId);
+          if (memberDn) names.push(memberDn);
         }
       }
     }
   }
   if (audience.targetContact && G.has(audience.targetContact)) {
-    const dn = G.getDynamic(audience.targetContact, "display_name");
-    if (dn) names.push(String(dn));
+    const dn = readDisplayName(G, audience.targetContact);
+    if (dn) names.push(dn);
   }
   return names;
 }
@@ -262,12 +263,12 @@ function collectTargetNames(audience: AudienceContext, G: WorldModel): string[] 
 function containsEntityReference(text: string, G: WorldModel): boolean {
   // 检查所有 channel 和 contact 的 display_name
   for (const nodeId of G.getEntitiesByType("channel")) {
-    const dn = G.getDynamic(nodeId, "display_name");
-    if (dn && text.includes(String(dn))) return true;
+    const dn = readDisplayName(G, nodeId);
+    if (dn && text.includes(dn)) return true;
   }
   for (const nodeId of G.getEntitiesByType("contact")) {
-    const dn = G.getDynamic(nodeId, "display_name");
-    if (dn && text.includes(String(dn))) return true;
+    const dn = readDisplayName(G, nodeId);
+    if (dn && text.includes(dn)) return true;
   }
   return false;
 }

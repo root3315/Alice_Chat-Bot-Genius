@@ -32,6 +32,7 @@ import {
   modulateCurve,
   type ResponseCurve,
   scoreAllCandidates,
+  scoreAllCandidatesDetailed,
 } from "../src/engine/iaus-scorer.js";
 import type { ChatType, DunbarTier } from "../src/graph/entities.js";
 import type { TensionVector } from "../src/graph/tension.js";
@@ -158,6 +159,10 @@ function addConversation(
     message_count: 0,
     alice_message_count: 0,
   });
+}
+
+function classPacingValues(result: NonNullable<ReturnType<typeof scoreAllCandidates>>) {
+  return result.scored.map((s) => s.considerations.U_class_pacing);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -431,6 +436,32 @@ describe("scoreAllCandidates", () => {
     const result = scoreAllCandidates(tensionMap, G, 100, [], config);
 
     expect(result).toBeNull();
+  });
+
+  it("detailed result keeps class-cap candidates scored with soft pacing diagnostics", () => {
+    const G = buildGraph([{ id: "channel:telegram:bot", chatType: "private" }]);
+    G.addContact("contact:telegram:bot", { is_bot: true, tier: 150 });
+    const tensionMap = new Map<string, TensionVector>([
+      ["channel:telegram:bot", tension({ tau1: 1.0, tau3: 0.5 })],
+    ]);
+    const config = buildIAUSConfig(G, tensionMap, {
+      nowMs,
+      classRateCaps: { private: 10, group: 8, channel: 8, bot: 0 },
+      classActionCounts: { private: 0, group: 0, channel: 0, bot: 0 },
+    });
+
+    const detailed = scoreAllCandidatesDetailed(tensionMap, G, 100, [], config);
+
+    expect(detailed.result).not.toBeNull();
+    expect(detailed.filterStats).toMatchObject({
+      totalChannels: 1,
+      eligibleTargets: 1,
+    });
+    expect(detailed.filterStats.filtered.class_rate_cap ?? 0).toBe(0);
+    expect(detailed.result?.scored.length).toBeGreaterThan(0);
+    expect(detailed.result?.scored.every((s) => s.considerations.U_class_pacing === 0.05)).toBe(
+      true,
+    );
   });
 
   it("单个 channel + 非零张力 → 返回结果", () => {
@@ -2396,7 +2427,7 @@ describe("ADR-189 蟑螂审计: Crisis mode pre-filter (GAP-5, P1)", () => {
 describe("ADR-189 蟑螂审计: Class rate cap cross-class isolation (GAP-6, P1)", () => {
   const nowMs = BASE_NOW_MS;
 
-  it("private 满额 + group 未满额 → private 候选被过滤，group 存活，winner 来自 group", () => {
+  it("private 满额 + group 未满额 → private 候选保留软降权，group 存活", () => {
     // 3 private + 2 group channels
     const G = buildGraph([
       { id: "channel:pm1", tierContact: 5, chatType: "private" },
@@ -2434,18 +2465,15 @@ describe("ADR-189 蟑螂审计: Class rate cap cross-class isolation (GAP-6, P1)
 
     expect(result).not.toBeNull();
     if (result) {
-      // private 候选全部被 class rate cap 过滤，winner 来自 group
-      expect(
-        result.candidate.target === "channel:grp1" || result.candidate.target === "channel:grp2",
-      ).toBe(true);
-
-      // scored 中不应有 private 候选（全被过滤）
+      // private 候选不再被 class rate cap 清池，而是留下 U_class_pacing 供 IAUS 竞争。
       const privateScored = result.scored.filter((s) => s.target?.startsWith("channel:pm"));
-      expect(privateScored.length).toBe(0);
+      expect(privateScored.length).toBeGreaterThan(0);
+      expect(privateScored.every((s) => s.considerations.U_class_pacing < 1)).toBe(true);
 
-      // group 候选应存在
+      // group 候选应存在，且未触发 class pacing 降权。
       const groupScored = result.scored.filter((s) => s.target?.startsWith("channel:grp"));
       expect(groupScored.length).toBeGreaterThan(0);
+      expect(groupScored.every((s) => s.considerations.U_class_pacing === 1)).toBe(true);
     }
   });
 });
@@ -2457,7 +2485,7 @@ describe("ADR-189: Bot scope rate cap", () => {
   const humanChannel = "channel:telegram:9002";
   const humanContact = "contact:telegram:9002";
 
-  it("bot channel + rateCap.bot=0 → 被 pre-filter 跳过", () => {
+  it("bot channel + rateCap.bot=0 → 普通 bot 候选被强软降权但不清池", () => {
     const G = buildGraph([{ id: botChannel, chatType: "private" }]);
     // 添加 bot contact
     G.addContact(botContact, { is_bot: true, tier: 150 });
@@ -2473,8 +2501,11 @@ describe("ADR-189: Bot scope rate cap", () => {
     });
     const result = scoreAllCandidates(tensionMap, G, 100, [], config);
 
-    // bot scope rateCap=0，0 >= 0 恒 true → 所有 non-bypass bot 候选跳过
-    expect(result).toBeNull();
+    // bot scope rateCap=0 仍表达强抑制，但不再作为 target eligibility 硬清池。
+    expect(result).not.toBeNull();
+    if (result) {
+      expect(classPacingValues(result).every((v) => v === 0.05)).toBe(true);
+    }
   });
 
   it("bot channel + bypass(directed) → 仍可通过评分", () => {
@@ -2499,6 +2530,7 @@ describe("ADR-189: Bot scope rate cap", () => {
     if (result) {
       expect(result.candidate.target).toBe(botChannel);
       expect(result.winnerBypassGates).toBe(true);
+      expect(result.candidate.considerations.U_class_pacing).toBe(1.0);
     }
   });
 
@@ -2524,10 +2556,15 @@ describe("ADR-189: Bot scope rate cap", () => {
     });
     const result = scoreAllCandidates(tensionMap, G, 100, [], config);
 
-    // bot 被过滤，human 仍有候选
+    // bot 不再被过滤；human 仍有候选，bot 只带 class pacing 降权。
     expect(result).not.toBeNull();
     if (result) {
-      expect(result.candidate.target).toBe(humanChannel);
+      const botScored = result.scored.filter((s) => s.target === botChannel);
+      const humanScored = result.scored.filter((s) => s.target === humanChannel);
+      expect(botScored.length).toBeGreaterThan(0);
+      expect(botScored.every((s) => s.considerations.U_class_pacing === 0.05)).toBe(true);
+      expect(humanScored.length).toBeGreaterThan(0);
+      expect(humanScored.every((s) => s.considerations.U_class_pacing === 1)).toBe(true);
     }
   });
 

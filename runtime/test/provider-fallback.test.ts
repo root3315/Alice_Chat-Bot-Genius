@@ -230,10 +230,10 @@ describe("D5: Provider Fallback", () => {
       ) as Config,
     );
 
-    const firstPassBag = new Set(Array.from({ length: 2 }, () => selectProviderForFirstPass().model));
-    expect(firstPassBag).toEqual(
-      new Set(["vertex-gemini-3-flash-preview", "deepseek-v4-flash"]),
+    const firstPassBag = new Set(
+      Array.from({ length: 2 }, () => selectProviderForFirstPass().model),
     );
+    expect(firstPassBag).toEqual(new Set(["vertex-gemini-3-flash-preview", "deepseek-v4-flash"]));
     expect(selectProviderForTick().model).toBe("deepseek-v4-flash");
   });
 
@@ -316,8 +316,9 @@ describe("ADR-129: breaker state change listener", () => {
       ),
     ]);
 
-    expect(events.filter((event) => event.name === "parallel-fail" && event.event === "open"))
-      .toHaveLength(1);
+    expect(
+      events.filter((event) => event.name === "parallel-fail" && event.event === "open"),
+    ).toHaveLength(1);
   });
 
   it("breaker 恢复（half-open → closed）时触发 listener", async () => {

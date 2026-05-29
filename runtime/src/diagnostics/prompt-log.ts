@@ -41,6 +41,12 @@ export interface PromptSnapshot {
   target: string | null;
   voice: string;
   round: number;
+  /** ADR-258: typed observation spine identity for replayable joins. */
+  observation?: {
+    candidateId?: string | null;
+    enqueueId?: string | null;
+    actionId?: string | null;
+  };
   system: string;
   user: string;
   /** LLM 生成的脚本（rawScript，null = LLM 调用失败）。 */
@@ -124,6 +130,9 @@ export function logPromptSnapshot(snapshot: PromptSnapshot): void {
       `| round | ${snapshot.round} |`,
       `| target | ${snapshot.target ?? "(none)"} |`,
       `| voice | ${snapshot.voice} |`,
+      `| candidate_id | ${snapshot.observation?.candidateId ?? "(none)"} |`,
+      `| enqueue_id | ${snapshot.observation?.enqueueId ?? "(none)"} |`,
+      `| action_id | ${snapshot.observation?.actionId ?? "(none)"} |`,
       `| time | ${ts.toISOString()} |`,
       `| script | ${snapshot.script === null ? "FAILED" : snapshot.script.length > 0 ? `${snapshot.script.length} chars` : "SILENT (0 tools)"} |`,
       "",

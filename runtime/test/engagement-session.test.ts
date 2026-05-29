@@ -15,6 +15,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  emptyScriptExecutionResult,
+  mergeScriptExecutionResults,
+} from "../src/core/script-execution.js";
+import {
   EngagementSession,
   EXPECT_REPLY_TIMEOUT,
   MAX_SUBCYCLES,
@@ -23,7 +27,6 @@ import {
   prepareStayWatch,
   quickPressureEstimate,
 } from "../src/engine/act/engagement.js";
-import { emptyScriptExecutionResult, mergeScriptExecutionResults } from "../src/core/script-execution.js";
 import type { ActContext } from "../src/engine/react/orchestrator.js";
 import { CHAT_TYPE_WEIGHTS, DUNBAR_TIER_WEIGHT, PRESSURE_SPECS } from "../src/graph/constants.js";
 import type { DunbarTier } from "../src/graph/entities.js";
@@ -37,6 +40,7 @@ import type { GraphPerturbation } from "../src/telegram/mapper.js";
 function makeEvent(overrides: Partial<GraphPerturbation> = {}): GraphPerturbation {
   return {
     type: "new_message",
+    chatType: "group",
     tick: 100,
     channelId: "channel:123",
     ...overrides,
@@ -46,7 +50,7 @@ function makeEvent(overrides: Partial<GraphPerturbation> = {}): GraphPerturbatio
 /** 构建包含 tier_contact 属性的图 */
 function buildGraphWithChannel(channelId: string, tier: DunbarTier): WorldModel {
   const G = new WorldModel();
-  G.addChannel(channelId, { tier_contact: tier });
+  G.addChannel(channelId, { chat_type: "private", tier_contact: tier });
   return G;
 }
 
@@ -119,8 +123,8 @@ describe("quickPressureEstimate", () => {
 
   it("intimate tier (5) 比 acquaintance tier (500) 紧急度更高", () => {
     const G = new WorldModel();
-    G.addChannel("channel:intimate", { tier_contact: 5 });
-    G.addChannel("channel:acquaintance", { tier_contact: 500 });
+    G.addChannel("channel:intimate", { chat_type: "private", tier_contact: 5 });
+    G.addChannel("channel:acquaintance", { chat_type: "private", tier_contact: 500 });
 
     const intimate = makeEvent({ channelId: "channel:intimate", isDirected: true });
     const acquaintance = makeEvent({ channelId: "channel:acquaintance", isDirected: true });
@@ -168,7 +172,7 @@ describe("quickPressureEstimate", () => {
     expect(urgency).toBeCloseTo(expected, 6);
   });
 
-  it("directed 使用 DUNBAR_TIER_WEIGHT × w_response(group 默认)", () => {
+  it("directed 使用 DUNBAR_TIER_WEIGHT × 显式 chat_type response 权重", () => {
     // 所有 Dunbar 层级的 directed 紧急度 = DUNBAR_TIER_WEIGHT[tier] × w_response
     const tiers = [5, 15, 50, 150, 500] as const;
 
@@ -176,8 +180,7 @@ describe("quickPressureEstimate", () => {
       const G = buildGraphWithChannel("channel:t", tier);
       const event = makeEvent({ channelId: "channel:t", isDirected: true });
       const urgency = quickPressureEstimate(G, event);
-      // 无 chat_type → 默认 group (w_response=1.0)
-      const expected = DUNBAR_TIER_WEIGHT[tier] * CHAT_TYPE_WEIGHTS.group.response;
+      const expected = DUNBAR_TIER_WEIGHT[tier] * CHAT_TYPE_WEIGHTS.private.response;
       expect(urgency).toBeCloseTo(expected, 6);
     }
   });
@@ -222,6 +225,7 @@ describe("prepareEngagementWatch", () => {
       buffer.push(
         makeEvent({
           type: "new_message",
+          chatType: "group",
           channelId: "channel:target",
           senderIsBot: false,
         }),
@@ -247,6 +251,7 @@ describe("prepareEngagementWatch", () => {
       buffer.push(
         makeEvent({
           type: "new_message",
+          chatType: "group",
           channelId: "channel:other",
           isDirected: true,
         }),
@@ -285,7 +290,13 @@ describe("prepareEngagementWatch", () => {
 
     // 立即 push（在 await 之前）
     buffer.push(
-      makeEvent({ type: "new_message", channelId: "channel:target", tick: 1, isDirected: true }),
+      makeEvent({
+        type: "new_message",
+        channelId: "channel:target",
+        tick: 1,
+        isDirected: true,
+        chatType: "private",
+      }),
     );
 
     // await 应立即 resolve（不超时）
@@ -316,6 +327,7 @@ describe("prepareEngagementWatch", () => {
       buffer.push(
         makeEvent({
           type: "new_message",
+          chatType: "group",
           channelId: "channel:target",
           senderIsBot: true,
         }),
@@ -342,6 +354,7 @@ describe("prepareEngagementWatch", () => {
       buffer.push(
         makeEvent({
           type: "new_message",
+          chatType: "group",
           channelId: "channel:other",
           isDirected: false,
         }),
@@ -377,6 +390,7 @@ describe("prepareStayWatch", () => {
       buffer.push(
         makeEvent({
           type: "new_message",
+          chatType: "group",
           channelId: "channel:target",
           isDirected: true,
           senderIsBot: false,
@@ -416,6 +430,7 @@ describe("prepareStayWatch", () => {
       buffer.push(
         makeEvent({
           type: "new_message",
+          chatType: "group",
           channelId: "channel:target",
           isDirected: false,
           senderIsBot: false,
@@ -440,6 +455,7 @@ describe("prepareStayWatch", () => {
       buffer.push(
         makeEvent({
           type: "new_message",
+          chatType: "group",
           channelId: "channel:other",
           isDirected: true,
         }),

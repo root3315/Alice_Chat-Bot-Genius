@@ -5,7 +5,7 @@
  * 每个渲染器是纯函数 (snapshot) → string。
  */
 
-import type { ChatTargetType, UserPromptSnapshot } from "../types.js";
+import type { UserPromptSnapshot } from "../types.js";
 import { renderChannel } from "./channel.js";
 import { renderGroup } from "./group.js";
 import { renderPrivate } from "./private.js";
@@ -22,7 +22,8 @@ export function renderUserPrompt(snapshot: UserPromptSnapshot): string {
       return renderGroup(snapshot);
     case "private_person":
     case "private_bot":
-    default:
       return renderPrivate(snapshot);
   }
+
+  return renderPrivate(snapshot);
 }

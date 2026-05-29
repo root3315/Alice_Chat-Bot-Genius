@@ -323,81 +323,33 @@ describe("L3-2: grief / 敏感状态检测", () => {
 
   it("contact mood_valence 负值 → 成本增加", () => {
     const G1 = graphWithContact();
-    const costNormal = computeSocialCost(
-      G1,
-      bobChannel,
-      "send_message",
-      100,
-      tickMs(100),
-      [],
-      cfg,
-    );
+    const costNormal = computeSocialCost(G1, bobChannel, "send_message", 100, tickMs(100), [], cfg);
 
     // mood_valence = -0.8（强烈负面情绪）→ 成本增加
     const G2 = graphWithContact({}, { mood_valence: -0.8 });
-    const costGrief = computeSocialCost(
-      G2,
-      bobChannel,
-      "send_message",
-      100,
-      tickMs(100),
-      [],
-      cfg,
-    );
+    const costGrief = computeSocialCost(G2, bobChannel, "send_message", 100, tickMs(100), [], cfg);
 
     expect(costGrief).toBeGreaterThan(costNormal);
   });
 
   it("contact mood_valence 轻微负值 → 成本增加", () => {
     const G1 = graphWithContact();
-    const costNormal = computeSocialCost(
-      G1,
-      bobChannel,
-      "send_message",
-      100,
-      tickMs(100),
-      [],
-      cfg,
-    );
+    const costNormal = computeSocialCost(G1, bobChannel, "send_message", 100, tickMs(100), [], cfg);
 
     // mood_valence = -0.5（中等负面情绪）→ 成本增加
     const G2 = graphWithContact({}, { mood_valence: -0.5 });
-    const costUpset = computeSocialCost(
-      G2,
-      bobChannel,
-      "send_message",
-      100,
-      tickMs(100),
-      [],
-      cfg,
-    );
+    const costUpset = computeSocialCost(G2, bobChannel, "send_message", 100, tickMs(100), [], cfg);
 
     expect(costUpset).toBeGreaterThan(costNormal);
   });
 
   it("contact mood_valence 正值 → 不增加成本", () => {
     const G1 = graphWithContact();
-    const costNormal = computeSocialCost(
-      G1,
-      bobChannel,
-      "send_message",
-      100,
-      tickMs(100),
-      [],
-      cfg,
-    );
+    const costNormal = computeSocialCost(G1, bobChannel, "send_message", 100, tickMs(100), [], cfg);
 
     // mood_valence = 0.6（正面情绪）→ 不触发负面信号
     const G2 = graphWithContact({}, { mood_valence: 0.6 });
-    const costHappy = computeSocialCost(
-      G2,
-      bobChannel,
-      "send_message",
-      100,
-      tickMs(100),
-      [],
-      cfg,
-    );
+    const costHappy = computeSocialCost(G2, bobChannel, "send_message", 100, tickMs(100), [], cfg);
 
     expect(costHappy).toBeCloseTo(costNormal, 10);
   });

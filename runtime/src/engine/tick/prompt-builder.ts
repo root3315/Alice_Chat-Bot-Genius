@@ -182,9 +182,7 @@ export async function buildTickPrompt(
   const { G, dispatcher, config, item, tick, messages, observations, round, episodeRound } = ctx;
 
   const chatType =
-    item.target && G.has(item.target)
-      ? (G.getChannel(item.target).chat_type ?? "private")
-      : "private";
+    item.target && G.has(item.target) ? G.getChannel(item.target).chat_type : "private";
   const isGroup = ChatTarget.isGroupChat(chatType);
   // ADR-206: 频道是信息流实体，独立于 group 和 private 的第三种渲染路径
   const isChannel = ChatTarget.isChannelChat(chatType);
@@ -375,8 +373,7 @@ export function buildActionFooter(
   const target = item.target;
 
   // 从图中推断群聊/私聊
-  const chatType =
-    target && G.has(target) ? (G.getChannel(target).chat_type ?? "private") : "private";
+  const chatType = target && G.has(target) ? G.getChannel(target).chat_type : "private";
   const isGroup = ChatTarget.isGroupChat(chatType);
 
   const feeling = resolveWhisper(item.action, isGroup, item.facetId);

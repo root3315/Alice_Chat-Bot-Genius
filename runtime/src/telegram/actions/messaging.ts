@@ -7,7 +7,13 @@
 import { tl } from "@mtcute/node";
 import { z } from "zod";
 import { sanitizeOutgoingText } from "../../core/sandbox-schemas.js";
-import { ensureChannelId, ensureContactId, extractNumericId } from "../../graph/constants.js";
+import {
+  ensureChannelId,
+  ensureContactId,
+  extractNumericId,
+  telegramChannelId,
+  telegramContactId,
+} from "../../graph/constants.js";
 import { recordForwardShare } from "../../graph/dynamic-props.js";
 import { defineAction } from "../action-builder.js";
 import type { TelegramActionDef } from "../action-types.js";
@@ -322,8 +328,12 @@ export const messagingActions: TelegramActionDef[] = [
       const text = sanitizeOutgoingText(args.text ?? "");
       if (!text) return false;
 
+      const who = args.who ?? "";
+      const telegramNativeId = extractNumericId(who);
+
       // Guard 2: contact 解析
-      const contactId = ensureContactId(args.who ?? "");
+      const contactId =
+        telegramNativeId != null ? telegramContactId(telegramNativeId) : ensureContactId(who);
       if (!contactId) return { success: false, error: "invalid contact" };
 
       // Guard 3: 图中存在
@@ -337,7 +347,8 @@ export const messagingActions: TelegramActionDef[] = [
       if (contactAttrs.tier >= 500) return { success: false, error: "too distant" };
 
       // Guard 6: DM channel 解析
-      const dmChannelId = ensureChannelId(args.who ?? "");
+      const dmChannelId =
+        telegramNativeId != null ? telegramChannelId(telegramNativeId) : ensureChannelId(who);
       if (!dmChannelId) return { success: false, error: "cannot resolve" };
 
       // Guard 7: 如果图中有该 channel 节点，确认是私聊

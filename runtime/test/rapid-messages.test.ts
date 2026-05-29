@@ -130,6 +130,7 @@ describe("B1: 快速连续消息场景", () => {
     for (let i = 0; i < 3; i++) {
       state.buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "channel:group",
         isDirected: false,
         tick: 1,
@@ -142,6 +143,7 @@ describe("B1: 快速连续消息场景", () => {
     for (let i = 0; i < 2; i++) {
       state.buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "channel:group",
         isDirected: false,
         tick: 2,
@@ -169,6 +171,7 @@ describe("B1: 快速连续消息场景", () => {
     // tick 1: 强 directed 消息 → 应触发入队
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:group",
       isDirected: true,
       tick: 1,
@@ -184,6 +187,7 @@ describe("B1: 快速连续消息场景", () => {
     // tick 2: 再次 directed → 但 isTargetActive 阻止重复入队
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:group",
       isDirected: true,
       tick: 2,
@@ -205,6 +209,7 @@ describe("B1: 快速连续消息场景", () => {
     // 触发入队
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:group",
       isDirected: true,
       tick: 1,
@@ -233,6 +238,7 @@ describe("B1: 快速连续消息场景", () => {
     for (let i = 0; i < 5; i++) {
       state.buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "channel:group",
         isDirected: false,
         tick: 1,

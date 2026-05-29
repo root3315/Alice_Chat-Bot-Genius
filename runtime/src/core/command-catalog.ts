@@ -118,9 +118,15 @@ async function probeVisibleNames(
   const uniqueNames = [...new Set(candidates.map((candidate) => candidate.name))];
   if (uniqueNames.length === 0) return new Set<string>();
 
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: sh variable expansion
-  const script =
-    'set -eu\nfor name in "$@"; do\n  if [ -n "${ALICE_SYSTEM_BIN_DIR:-}" ] && [ -x "${ALICE_SYSTEM_BIN_DIR}/$name" ]; then\n    printf "%s\\n" "$name"\n  fi\ndone';
+  const script = [
+    "set -e",
+    'bin_dir="$ALICE_SYSTEM_BIN_DIR"',
+    'for name in "$@"; do',
+    '  if [ -n "$bin_dir" ] && [ -x "$bin_dir/$name" ]; then',
+    '    printf "%s\\n" "$name"',
+    "  fi",
+    "done",
+  ].join("\n");
 
   const stdout = await executeAliceSandboxCommand({
     command: script,

@@ -4,8 +4,13 @@ vi.mock("../src/core/shell-executor.js", () => ({
   executeShellScript: vi.fn(),
 }));
 
+vi.mock("../src/llm/resilience.js", () => ({
+  withResilience: vi.fn(async (fn: () => Promise<unknown>) => await fn()),
+}));
+
 const { runTCLoop, TC_MAX_TOOL_CALLS } = await import("../src/engine/tick/tc-loop.js");
 const { executeShellScript } = await import("../src/core/shell-executor.js");
+const { withResilience } = await import("../src/llm/resilience.js");
 
 function bashToolCall(id: string, command: string) {
   return {
@@ -14,6 +19,17 @@ function bashToolCall(id: string, command: string) {
     function: {
       name: "bash",
       arguments: JSON.stringify({ command }),
+    },
+  };
+}
+
+function signalToolCall(id: string, afterward: unknown) {
+  return {
+    id,
+    type: "function" as const,
+    function: {
+      name: "signal",
+      arguments: JSON.stringify({ afterward }),
     },
   };
 }
@@ -80,6 +96,10 @@ describe("runTCLoop", () => {
     });
 
     expect(openai.chat.completions.create).toHaveBeenCalledTimes(1);
+    expect(openai.chat.completions.create).toHaveBeenCalledWith(expect.any(Object), {
+      maxRetries: 0,
+    });
+    expect(vi.mocked(withResilience).mock.calls[0]?.[1]).toMatchObject({ maxRetries: 0 });
     expect(executeShellScript).toHaveBeenCalledTimes(TC_MAX_TOOL_CALLS);
     expect(result.toolCallCount).toBe(TC_MAX_TOOL_CALLS);
     expect(result.budgetExhausted).toBe(true);
@@ -226,5 +246,45 @@ describe("runTCLoop", () => {
         requestedChatId: "-1002",
       }),
     ]);
+  });
+
+  it("falls back invalid signal afterward to done instead of recording an impossible value", async () => {
+    const openai = makeOpenAI([
+      {
+        choices: [
+          {
+            finish_reason: "tool_calls",
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [signalToolCall("call_1", "later")],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "done",
+            },
+          },
+        ],
+      },
+    ]);
+
+    const result = await runTCLoop({
+      openai: openai as never,
+      model: "test-model",
+      providerName: "test",
+      systemPrompt: "sys",
+      userMessage: "usr",
+    });
+
+    expect(result.afterward).toBe("done");
+    expect(result.transcript?.[0]?.toolCalls[0]?.afterward).toBe("done");
+    expect(result.transcript?.[0]?.toolCalls[0]?.args).toEqual({ afterward: "later" });
   });
 });

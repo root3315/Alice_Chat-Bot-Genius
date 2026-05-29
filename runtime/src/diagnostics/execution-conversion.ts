@@ -7,6 +7,7 @@
  * @see docs/adr/258-iaus-health-curve-validation/README.md §Wave 7
  */
 
+import { type CompletedAction, completedActionFacts } from "../core/script-execution.js";
 import { getSqlite } from "../db/connection.js";
 
 export interface ExecutionConversionReport {
@@ -231,6 +232,37 @@ interface JoinedCandidateRow {
   actionResult: string;
 }
 
+interface ExecutionConversionOutcomeSqlRow {
+  gatePlane: string;
+  candidateAction: string;
+  actionResult: string;
+  actionLogType: string;
+  tcAfterward: string;
+  failureCode: string;
+  completedActionRefsJson: string | null;
+}
+
+interface FocusPathProjectionSqlRow {
+  pathId: string;
+  tick: number;
+  pathLength: number;
+  originChatId: string;
+  requestedChatId: string;
+  transitionClass: string;
+  evidenceStrength: "strong" | "medium" | "weak";
+  pathOutcome: "completed" | "failed" | "mixed" | "pending";
+  contaminationFlags: string;
+  sourceCommand: string;
+  gatePlane: string;
+  candidateAction: string;
+  actionResult: string;
+  failureCode: string;
+  completedActionRefsJson: string | null;
+  tcAfterward: string;
+  sourceTarget: string;
+  payloadJson: string;
+}
+
 const SELECTED_CANDIDATE_CONVERSION_SQL = `
 WITH selected AS (
   SELECT candidate_id, action_type, gate_plane
@@ -294,28 +326,11 @@ SELECT
   coalesce(al.action_type, 'missing') AS actionLogType,
   coalesce(al.tc_afterward, 'none') AS tcAfterward,
   ar.failure_code AS failureCode,
-  CASE
-    WHEN ar.completed_action_refs_json = '[]' THEN 'empty'
-    WHEN ar.completed_action_refs_json LIKE '%sent:%' THEN 'sent'
-    WHEN ar.completed_action_refs_json LIKE '%forwarded:%' THEN 'forwarded'
-    WHEN ar.completed_action_refs_json LIKE '%sticker:%' THEN 'sticker'
-    WHEN ar.completed_action_refs_json LIKE '%reacted:%' THEN 'reacted'
-    ELSE 'other'
-  END AS completedActionKind,
-  count(*) AS count
+  ar.completed_action_refs_json AS completedActionRefsJson
 FROM candidate_trace ct
 JOIN action_result ar ON ar.candidate_id = ct.candidate_id
 LEFT JOIN action_log al ON al.id = ar.action_log_id
 WHERE ct.selected = 1
-GROUP BY
-  ct.gate_plane,
-  ct.action_type,
-  ar.result,
-  actionLogType,
-  tcAfterward,
-  ar.failure_code,
-  completedActionKind
-ORDER BY count(*) DESC
 `;
 
 const SELECTED_CANDIDATE_FAILURE_USE_CASE_SQL = `
@@ -480,15 +495,7 @@ WITH base AS (
     coalesce(ar.failure_code, 'missing') AS failureCode,
     coalesce(al.action_type, 'missing') AS actionLogType,
     coalesce(al.tc_afterward, 'none') AS tcAfterward,
-    CASE
-      WHEN ar.completed_action_refs_json IS NULL OR ar.completed_action_refs_json = '[]' THEN 'empty'
-      WHEN ar.completed_action_refs_json LIKE '%forwarded:%' THEN 'forwarded'
-      WHEN ar.completed_action_refs_json LIKE '%sent:%' THEN 'sent'
-      WHEN ar.completed_action_refs_json LIKE '%sticker:%' THEN 'sticker'
-      WHEN ar.completed_action_refs_json LIKE '%voice:%' THEN 'voice'
-      WHEN ar.completed_action_refs_json LIKE '%sent-file:%' THEN 'sent-file'
-      ELSE 'other'
-    END AS completedActionKind,
+    ar.completed_action_refs_json AS completedActionRefsJson,
     CASE
       WHEN al.tc_host_continuation_trace IS NOT NULL
         AND EXISTS (
@@ -533,7 +540,7 @@ WITH base AS (
     'N/A' AS failureCode,
     'attention_pull' AS actionLogType,
     'none' AS tcAfterward,
-    'empty' AS completedActionKind,
+    '[]' AS completedActionRefsJson,
     0 AS hasContinuationMerge,
     0 AS hasMixedAction,
     0 AS hasUnstructuredFallback
@@ -569,7 +576,7 @@ SELECT
   candidateAction,
   actionResult,
   failureCode,
-  completedActionKind,
+  completedActionRefsJson,
   tcAfterward,
   coalesce(sourceTarget, '') AS sourceTarget,
   coalesce(payloadJson, '{}') AS payloadJson
@@ -804,7 +811,7 @@ export function analyzeExecutionConversion(): ExecutionConversionReport {
   const rows = getSqlite().prepare(SELECTED_CANDIDATE_CONVERSION_SQL).all() as JoinedCandidateRow[];
   const outcomeRows = getSqlite()
     .prepare(SELECTED_CANDIDATE_OUTCOME_SQL)
-    .all() as ExecutionConversionOutcomeRow[];
+    .all() as ExecutionConversionOutcomeSqlRow[];
   const failureUseCases = getSqlite()
     .prepare(SELECTED_CANDIDATE_FAILURE_USE_CASE_SQL)
     .all() as ExecutionConversionFailureUseCaseRow[];
@@ -817,7 +824,7 @@ export function analyzeExecutionConversion(): ExecutionConversionReport {
   );
   const transitionRows = getSqlite()
     .prepare(FOCUS_PATH_PROJECTION_SQL)
-    .all() as FocusPathProjectionRow[];
+    .all() as FocusPathProjectionSqlRow[];
   const attentionPairRows = getSqlite()
     .prepare(ATTENTION_PULL_PAIR_SQL)
     .all() as AttentionPullPairRow[];
@@ -881,7 +888,9 @@ export function analyzeExecutionConversion(): ExecutionConversionReport {
     .sort((a, b) => b.selected - a.selected);
 
   const detailRows = [...detailMap.values()].sort((a, b) => b.count - a.count);
-  const summaryRows = summarizeFocusPathProjection(pointTargetRows, transitionRows);
+  const groupedOutcomeRows = groupOutcomeRows(outcomeRows);
+  const focusTransitionRows = transitionRows.map(toFocusPathProjectionRow);
+  const summaryRows = summarizeFocusPathProjection(pointTargetRows, focusTransitionRows);
   const attentionTotal = attentionPairRows.reduce((sum, row) => sum + row.count, 0);
   const topRequestedCount = maxRequestedCount(attentionPairRows);
 
@@ -889,12 +898,12 @@ export function analyzeExecutionConversion(): ExecutionConversionReport {
     totalSelected: rows.length,
     planeSummaries,
     detailRows,
-    outcomeRows,
+    outcomeRows: groupedOutcomeRows,
     failureUseCases,
     transitionShadows,
     focusPathProjection: {
       pointTargetRows,
-      transitionRows,
+      transitionRows: focusTransitionRows,
       summaryRows,
     },
     attentionPullAudit: {
@@ -1109,6 +1118,102 @@ function summarizeFocusPathProjection(
     if (a.pathLength !== b.pathLength) return a.pathLength - b.pathLength;
     return b.count - a.count;
   });
+}
+
+function groupOutcomeRows(
+  rows: readonly ExecutionConversionOutcomeSqlRow[],
+): ExecutionConversionOutcomeRow[] {
+  const grouped = new Map<string, ExecutionConversionOutcomeRow>();
+  for (const row of rows) {
+    const completedActionKind = classifyCompletedActionKind(row.completedActionRefsJson);
+    const key = [
+      row.gatePlane,
+      row.candidateAction,
+      row.actionResult,
+      row.actionLogType,
+      row.tcAfterward,
+      row.failureCode,
+      completedActionKind,
+    ].join("\u0000");
+    const existing =
+      grouped.get(key) ??
+      ({
+        gatePlane: row.gatePlane,
+        candidateAction: row.candidateAction,
+        actionResult: row.actionResult,
+        actionLogType: row.actionLogType,
+        tcAfterward: row.tcAfterward,
+        failureCode: row.failureCode,
+        completedActionKind,
+        count: 0,
+      } satisfies ExecutionConversionOutcomeRow);
+    existing.count++;
+    grouped.set(key, existing);
+  }
+  return [...grouped.values()].sort((a, b) => b.count - a.count);
+}
+
+function toFocusPathProjectionRow(row: FocusPathProjectionSqlRow): FocusPathProjectionRow {
+  return {
+    pathId: row.pathId,
+    tick: row.tick,
+    pathLength: row.pathLength,
+    originChatId: row.originChatId,
+    requestedChatId: row.requestedChatId,
+    transitionClass: row.transitionClass,
+    evidenceStrength: row.evidenceStrength,
+    pathOutcome: row.pathOutcome,
+    contaminationFlags: row.contaminationFlags,
+    sourceCommand: row.sourceCommand,
+    gatePlane: row.gatePlane,
+    candidateAction: row.candidateAction,
+    actionResult: row.actionResult,
+    failureCode: row.failureCode,
+    completedActionKind: classifyCompletedActionKind(row.completedActionRefsJson),
+    tcAfterward: row.tcAfterward,
+    sourceTarget: row.sourceTarget,
+    payloadJson: row.payloadJson,
+  };
+}
+
+function classifyCompletedActionKind(completedActionRefsJson: string | null): string {
+  const completedActions = completedActionFacts({
+    completedActions: parseCompletedActionRefs(completedActionRefsJson),
+  });
+  if (completedActions.length === 0) return "empty";
+  const classified = completedActions
+    .map((action) => completedActionKindLabel(action))
+    .find((kind) => kind !== "other");
+  return classified ?? "other";
+}
+
+function completedActionKindLabel(action: CompletedAction): string {
+  switch (action.kind) {
+    case "sent":
+    case "voice":
+    case "sticker":
+    case "react":
+    case "sent-file":
+    case "forwarded":
+    case "downloaded":
+      return action.kind;
+    case "unknown":
+    case "malformed":
+      return "other";
+  }
+  return "other";
+}
+
+function parseCompletedActionRefs(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function getOrCreatePlaneSummary(

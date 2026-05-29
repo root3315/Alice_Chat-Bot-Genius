@@ -120,9 +120,7 @@ export interface EngagementSlot {
 export async function initSlot(ctx: ActContext, item: ActionQueueItem): Promise<EngagementSlot> {
   const targetChatId = item.target ? extractNumericId(item.target) : null;
   const targetChatType =
-    item.target && ctx.G.has(item.target)
-      ? (ctx.G.getChannel(item.target).chat_type ?? undefined)
-      : undefined;
+    item.target && ctx.G.has(item.target) ? ctx.G.getChannel(item.target).chat_type : undefined;
   const recentMessages = targetChatId
     ? await fetchRecentMessages(ctx.client, targetChatId, ctx.config, {
         chatType: targetChatType,

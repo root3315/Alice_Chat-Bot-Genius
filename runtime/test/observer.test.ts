@@ -37,7 +37,7 @@ const queries = observerMod.queries!;
 describe("observer.mod — DECLARE_ACTION", () => {
   it("写入 last_alice_action_ms 和 social_debt_direction", () => {
     const ctx = makeCtx({ outcomeHistory: [] } as never);
-    ctx.graph.addChannel("channel:1", { unread: 0 });
+    ctx.graph.addChannel("channel:1", { chat_type: "private", unread: 0 });
 
     const impl = instructions.DECLARE_ACTION.impl;
     const result = impl(ctx as unknown as ModContext, {
@@ -199,7 +199,7 @@ describe("observer.mod — rate_outcome", () => {
 describe("observer.mod — feel", () => {
   it("写入 mood 属性", () => {
     const ctx = makeCtx({ outcomeHistory: [] } as never);
-    ctx.graph.addChannel("channel:1");
+    ctx.graph.addChannel("channel:1", { chat_type: "private" });
 
     const impl = instructions.feel.impl;
     impl(ctx as unknown as ModContext, {
@@ -221,7 +221,7 @@ describe("observer.mod — feel", () => {
 describe("observer.mod — flag_risk", () => {
   it("写入 risk 属性", () => {
     const ctx = makeCtx({ outcomeHistory: [] } as never);
-    ctx.graph.addChannel("channel:1");
+    ctx.graph.addChannel("channel:1", { chat_type: "private" });
 
     const impl = instructions.flag_risk.impl;
     impl(ctx as unknown as ModContext, {
@@ -240,7 +240,7 @@ describe("observer.mod — flag_risk", () => {
 describe("observer.mod — observe_activity", () => {
   it("写入 activity 属性", () => {
     const ctx = makeCtx({ outcomeHistory: [] } as never);
-    ctx.graph.addChannel("channel:1");
+    ctx.graph.addChannel("channel:1", { chat_type: "private" });
 
     const impl = instructions.observe_activity.impl;
     impl(ctx as unknown as ModContext, {
@@ -283,7 +283,7 @@ describe("observer.mod — sense", () => {
 describe("observer.mod — chat_mood 查询", () => {
   it("返回所有标注属性", () => {
     const ctx = makeCtx({ outcomeHistory: [] } as never);
-    ctx.graph.addChannel("channel:1");
+    ctx.graph.addChannel("channel:1", { chat_type: "private" });
     ctx.graph.setDynamic("channel:1", "last_alice_action_ms", 1699999999000);
     ctx.graph.setDynamic("channel:1", "risk_level", "medium");
 

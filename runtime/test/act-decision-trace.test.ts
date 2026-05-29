@@ -160,7 +160,7 @@ describe("ACT decision_trace", () => {
       {
         toolCallCount: 0,
         budgetExhausted: false,
-        afterward: "complete",
+        afterward: "done",
         commandLog: '$ irc reply --ref 42 --text "hi"\n✓ Replied to: #42: "hi"',
       },
     );
@@ -228,6 +228,36 @@ describe("ACT decision_trace", () => {
     const actionRows = getDb().select().from(actionLog).all();
     expect(actionRows[0]?.actionType).toBe("command_misuse");
     expect(actionRows[0]?.success).toBe(false);
+  });
+
+  it("keeps successful internal self actions out of social delivery failures", () => {
+    const target = "channel:internal-state-update";
+    const ctx = makeContextWithChannel(target);
+    const result = makeResult(["internal:command=feel"]);
+    result.errors = ["later shell step failed"];
+    result.errorCodes = ["shell_nonzero"];
+
+    processResult(ctx, makeTargetItem(target), 9, result, 1, 1, {
+      subcycles: 1,
+      durationMs: 25,
+      outcome: "complete",
+    });
+
+    const channel = ctx.G.getChannel(target);
+    expect(channel.consecutive_act_silences).toBe(2);
+    expect(channel.pending_directed).toBe(0);
+
+    const actionRows = getDb().select().from(actionLog).all();
+    expect(actionRows[0]?.actionType).toBe("internal");
+    expect(actionRows[0]?.success).toBe(true);
+
+    const traces = listDecisionTraces({ tick: 9, phase: "act" });
+    expect(traces[0]?.finalDecision).toBe("execute");
+    const payload = traces[0]?.payload as {
+      hostExecution?: { outcome?: string; messageSent?: boolean };
+    };
+    expect(payload.hostExecution?.outcome).toBe("internal_success");
+    expect(payload.hostExecution?.messageSent).toBe(false);
   });
 
   it("marks typed Telegram soft permanent failures as unreachable and clears target-local obligations", () => {
@@ -370,6 +400,10 @@ describe("ACT decision_trace", () => {
       count: 5,
       messageCount: 2,
     });
+
+    const channel = ctx.G.getChannel(target);
+    expect(channel.consecutive_act_silences).toBe(2);
+    expect(channel.pending_directed).toBe(0);
   });
 
   it("writes structured focus transition shadow facts for forwarded shares", () => {
@@ -431,5 +465,34 @@ describe("ACT decision_trace", () => {
 
     const traces = listDecisionTraces({ tick: 9, phase: "act" });
     expect(traces[0]?.finalDecision).toBe("stop");
+  });
+
+  it("records recovery silence as stop even when earlier recovery rounds had errors", () => {
+    const target = "channel:recovery-silence";
+    const ctx = makeContextWithChannel(target);
+    const result = makeResult([]);
+    result.errors = ["earlier command failed"];
+    result.errorCodes = ["shell_nonzero"];
+    result.silenceReason = "no_executable_script";
+
+    processResult(ctx, makeTargetItem(target), 9, result, 0, 1, {
+      subcycles: 1,
+      durationMs: 25,
+      outcome: "complete",
+    });
+
+    const actionRows = getDb().select().from(actionLog).all();
+    expect(actionRows[0]?.actionType).toBe("silence");
+    expect(actionRows[0]?.success).toBe(true);
+
+    const traces = listDecisionTraces({ tick: 9, phase: "act" });
+    expect(traces[0]?.finalDecision).toBe("stop");
+    const payload = traces[0]?.payload as {
+      block?: { errors?: string[]; errorCodes?: string[] };
+      hostExecution?: { outcome?: string };
+    };
+    expect(payload.hostExecution?.outcome).toBe("silence");
+    expect(payload.block?.errors).toEqual(["earlier command failed"]);
+    expect(payload.block?.errorCodes).toEqual(["shell_nonzero"]);
   });
 });

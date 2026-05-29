@@ -255,6 +255,79 @@ describe("analyzeExecutionConversion", () => {
     );
   });
 
+  it("classifies completed actions through decoded refs in outcome rows", () => {
+    const cases = [
+      {
+        candidateId: "codec-forwarded",
+        action: "codec_forwarded",
+        tick: 30,
+        completedActionRefsJson: JSON.stringify(["forwarded:from=-1001:to=-1002:msgId=8"]),
+        expectedKind: "forwarded",
+      },
+      {
+        candidateId: "codec-sent-file",
+        action: "codec_sent_file",
+        tick: 31,
+        completedActionRefsJson: JSON.stringify(["sent-file:chatId=-1001:path=/tmp/a.png"]),
+        expectedKind: "sent-file",
+      },
+      {
+        candidateId: "codec-downloaded",
+        action: "codec_downloaded",
+        tick: 32,
+        completedActionRefsJson: JSON.stringify([
+          "downloaded:chatId=-1001:msgId=9:path=/tmp/a.png",
+        ]),
+        expectedKind: "downloaded",
+      },
+      {
+        candidateId: "codec-malformed",
+        action: "codec_malformed",
+        tick: 33,
+        completedActionRefsJson: JSON.stringify(["sent:chatId=-1001"]),
+        expectedKind: "other",
+      },
+      {
+        candidateId: "codec-unknown",
+        action: "codec_unknown",
+        tick: 34,
+        completedActionRefsJson: JSON.stringify(["something-new:chatId=-1001:msgId=9"]),
+        expectedKind: "other",
+      },
+    ];
+
+    for (const row of cases) {
+      insertCandidate({
+        id: row.candidateId,
+        tick: row.tick,
+        action: row.action,
+        gatePlane: "none",
+      });
+      insertQueue({ candidateId: row.candidateId, tick: row.tick, fate: "executed" });
+      insertResult({
+        candidateId: row.candidateId,
+        tick: row.tick,
+        action: row.action,
+        result: "success",
+        completedActionRefsJson: row.completedActionRefsJson,
+      });
+    }
+
+    const report = analyzeExecutionConversion();
+
+    for (const row of cases) {
+      expect(report.outcomeRows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            candidateAction: row.action,
+            completedActionKind: row.expectedKind,
+            count: 1,
+          }),
+        ]),
+      );
+    }
+  });
+
   it("reports cross-chat send failures as shadow transition evidence without structured requested target", () => {
     const actionLogId = insertActionLog({
       tick: 8,
@@ -574,6 +647,54 @@ describe("analyzeExecutionConversion", () => {
         pathOutcome: "mixed",
         contaminationFlags: "mixed_action continuation_merge",
         completedActionKind: "sent",
+      }),
+    ]);
+  });
+
+  it("classifies focus path completed actions through decoded refs", () => {
+    const actionLogId = insertActionLog({
+      tick: 35,
+      voice: "curiosity",
+      actionType: "message",
+      success: true,
+      target: "channel:-1001",
+      tcAfterward: "watching",
+      reasoning: "downloaded a file while inspecting a path",
+    });
+    insertCandidate({ id: "codec-path", tick: 35, action: "curiosity", gatePlane: "none" });
+    insertQueue({ candidateId: "codec-path", tick: 35, fate: "executed" });
+    insertResult({
+      candidateId: "codec-path",
+      tick: 35,
+      action: "curiosity",
+      result: "success",
+      actionLogId,
+      completedActionRefsJson: JSON.stringify(["downloaded:chatId=-1001:msgId=9:path=/tmp/a.png"]),
+    });
+    getDb()
+      .insert(focusTransitionShadow)
+      .values({
+        transitionShadowId: "focus_shadow:action:codec-path:0",
+        tick: 35,
+        actionId: "action:codec-path",
+        actionLogId,
+        candidateId: "codec-path",
+        sourceTarget: "channel:-1001",
+        currentChatId: "-1001",
+        requestedChatId: "-1002",
+        sourceCommand: "irc.download",
+        transitionClass: "observe_shadow",
+        evidenceStatus: "structured_observation_target",
+        payloadJson: "{}",
+      })
+      .run();
+
+    const report = analyzeExecutionConversion();
+
+    expect(report.focusPathProjection.transitionRows).toEqual([
+      expect.objectContaining({
+        transitionClass: "observe_shadow",
+        completedActionKind: "downloaded",
       }),
     ]);
   });

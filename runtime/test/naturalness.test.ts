@@ -371,6 +371,7 @@ describe("computeRAI", () => {
     G.addAgent("self");
     // 只有 1 个频道，不够计算相关性
     G.addChannel("ch1", {
+      chat_type: "private",
       unread: 5,
       last_activity_ms: 1000,
       last_alice_action_ms: 2000,
@@ -386,18 +387,21 @@ describe("computeRAI", () => {
     const now = Date.now();
     // 构造 3 个频道，活跃度不同
     G.addChannel("ch1", {
+      chat_type: "private",
       unread: 20,
       last_activity_ms: now - 1000,
       last_alice_action_ms: now - 500,
       contact_recv_window: 50,
     });
     G.addChannel("ch2", {
+      chat_type: "private",
       unread: 5,
       last_activity_ms: now - 5000,
       last_alice_action_ms: now - 3000,
       contact_recv_window: 10,
     });
     G.addChannel("ch3", {
+      chat_type: "private",
       unread: 1,
       last_activity_ms: now - 10000,
       last_alice_action_ms: now - 8000,
@@ -416,6 +420,7 @@ describe("computeRAI", () => {
     const now = 100_000;
     // 高活跃频道 → Alice 最近刚回复（短间隔）
     G.addChannel("channel:active", {
+      chat_type: "private",
       unread: 30,
       last_activity_ms: now - 100,
       last_alice_action_ms: now - 50, // Alice 50ms 前回复
@@ -423,6 +428,7 @@ describe("computeRAI", () => {
     });
     // 中活跃频道
     G.addChannel("channel:medium", {
+      chat_type: "private",
       unread: 10,
       last_activity_ms: now - 500,
       last_alice_action_ms: now - 1000, // Alice 1s 前回复
@@ -430,6 +436,7 @@ describe("computeRAI", () => {
     });
     // 低活跃频道 → Alice 很久没回复（长间隔）
     G.addChannel("channel:quiet", {
+      chat_type: "private",
       unread: 1,
       last_activity_ms: now - 5000,
       last_alice_action_ms: now - 10000, // Alice 10s 前回复
@@ -463,18 +470,21 @@ describe("computeNaturalness", () => {
     const now = Date.now();
     // 3 个频道用于 RAI
     G.addChannel("ch1", {
+      chat_type: "private",
       unread: 20,
       last_activity_ms: now - 1000,
       last_alice_action_ms: now - 500,
       contact_recv_window: 50,
     });
     G.addChannel("ch2", {
+      chat_type: "private",
       unread: 5,
       last_activity_ms: now - 5000,
       last_alice_action_ms: now - 3000,
       contact_recv_window: 10,
     });
     G.addChannel("ch3", {
+      chat_type: "private",
       unread: 1,
       last_activity_ms: now - 10000,
       last_alice_action_ms: now - 8000,

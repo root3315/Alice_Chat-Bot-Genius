@@ -26,9 +26,9 @@ import { z } from "zod";
 
 import { createMod } from "../core/mod-builder.js";
 import { PromptBuilder } from "../core/prompt-style.js";
-import type { ContributionItem } from "../core/types.js";
+import type { ContributionItem, ModContext } from "../core/types.js";
 import { header, readModState } from "../core/types.js";
-import { ensureContactId } from "../graph/constants.js";
+import { ensureChannelId, ensureContactId } from "../graph/constants.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("diary");
@@ -251,6 +251,17 @@ function normalizeAbout(about: string): string | null {
   return null;
 }
 
+function thoughtMatchesCurrentTarget(t: Thought, currentTarget: string | null): boolean {
+  if (!t.about || !currentTarget) return false;
+  if (t.about === currentTarget) return true;
+  return ensureChannelId(t.about) === currentTarget || ensureContactId(currentTarget) === t.about;
+}
+
+function currentDiaryTarget(ctx: ModContext<DiaryState>): string | null {
+  const relState = readModState(ctx, "relationships");
+  return relState?.targetNodeId ?? null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 时间格式化
 // ═══════════════════════════════════════════════════════════════════════════
@@ -301,15 +312,16 @@ export const diaryMod = createMod<DiaryState>("diary", {
       if (about) {
         const resolved = normalizeAbout(about);
         if (!resolved) {
-          const relState = readModState(ctx, "relationships");
-          about = relState?.targetNodeId ?? null;
-          log.debug("diary about fallback to current target", {
+          about = null;
+          log.debug("diary about could not be resolved; storing as global", {
             original: args.about,
             resolved: about,
           });
         } else {
           about = resolved;
         }
+      } else {
+        about = currentDiaryTarget(ctx);
       }
       // ADR-91 Layer 1: diary about Bot → 清除 about
       if (about && ctx.graph.has(about) && ctx.graph.getDynamic(about, "is_bot") === true) {
@@ -350,15 +362,12 @@ export const diaryMod = createMod<DiaryState>("diary", {
     const relState = readModState(ctx, "relationships");
     const currentTarget = relState?.targetNodeId ?? null;
 
-    // 计算有效显著性，过滤已淡出的想法
+    // 计算有效显著性，只保留当前 target 相关想法。
     const active = thoughts
       .map((t) => ({ ...t, eSal: effectiveSalience(t, nowMs) }))
       .filter((t) => t.eSal >= INJECT_FLOOR)
+      .filter((t) => thoughtMatchesCurrentTarget(t, currentTarget))
       .sort((a, b) => {
-        // 当前对话相关的想法优先
-        const aTarget = a.about === currentTarget && currentTarget != null ? 1 : 0;
-        const bTarget = b.about === currentTarget && currentTarget != null ? 1 : 0;
-        if (aTarget !== bTarget) return bTarget - aTarget;
         return b.eSal - a.eSal;
       });
 

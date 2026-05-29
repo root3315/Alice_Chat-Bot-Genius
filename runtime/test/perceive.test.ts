@@ -12,8 +12,20 @@ describe("perceiveTick — group bot flood cooldown", () => {
     });
 
     const buffer = new EventBuffer();
-    buffer.push({ type: "new_message", channelId: "channel:group", senderIsBot: true, tick: 1 });
-    buffer.push({ type: "new_message", channelId: "channel:group", senderIsBot: true, tick: 1 });
+    buffer.push({
+      type: "new_message",
+      chatType: "group",
+      channelId: "channel:group",
+      senderIsBot: true,
+      tick: 1,
+    });
+    buffer.push({
+      type: "new_message",
+      chatType: "group",
+      channelId: "channel:group",
+      senderIsBot: true,
+      tick: 1,
+    });
 
     perceiveTick(G, buffer, 1);
 
@@ -29,7 +41,13 @@ describe("perceiveTick — group bot flood cooldown", () => {
     });
 
     const buffer = new EventBuffer();
-    buffer.push({ type: "new_message", channelId: "channel:group", senderIsBot: false, tick: 1 });
+    buffer.push({
+      type: "new_message",
+      chatType: "group",
+      channelId: "channel:group",
+      senderIsBot: false,
+      tick: 1,
+    });
 
     perceiveTick(G, buffer, 1);
 

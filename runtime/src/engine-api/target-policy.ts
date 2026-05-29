@@ -1,4 +1,4 @@
-import { ensureChannelId } from "../graph/constants.js";
+import { ensureChannelId, telegramChannelId } from "../graph/constants.js";
 import type { TransportTargetRef } from "../platform/transport.js";
 
 export const TARGET_NOT_WHITELISTED_CODE = "command_invalid_target";
@@ -17,5 +17,5 @@ export function telegramTargetAllowed(
   chatId: number,
 ): boolean {
   if (!whitelist) return true;
-  return whitelist.has(ensureChannelId(String(chatId)) ?? String(chatId));
+  return whitelist.has(telegramChannelId(chatId));
 }

@@ -10,7 +10,7 @@
 import { parseArgs } from "node:util";
 import { generateText } from "ai";
 import { loadConfig } from "../config.js";
-import { selectProviderForFirstPass, initProviders } from "../llm/client.js";
+import { initProviders, selectProviderForFirstPass } from "../llm/client.js";
 import { normalizeScript } from "../llm/schemas.js";
 import {
   runSocialCaseReplaySuite,

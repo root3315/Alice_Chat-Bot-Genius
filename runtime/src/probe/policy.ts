@@ -24,7 +24,10 @@ export interface ProbePolicyInput {
 }
 
 export type ProbePolicyDecision =
-  | { type: "skip_probe"; reason: "disabled" | "directed" | "strong_motivation" | "no_context" | "cooldown" }
+  | {
+      type: "skip_probe";
+      reason: "disabled" | "directed" | "strong_motivation" | "no_context" | "cooldown";
+    }
   | { type: "run_probe"; reason: "weak_uncertain_motivation" };
 
 export function decideProbe(input: ProbePolicyInput): ProbePolicyDecision {
@@ -32,10 +35,7 @@ export function decideProbe(input: ProbePolicyInput): ProbePolicyDecision {
   if (input.directlyAddressed) return { type: "skip_probe", reason: "directed" };
   if (input.strongMotivation) return { type: "skip_probe", reason: "strong_motivation" };
   if (input.contextItemCount <= 0) return { type: "skip_probe", reason: "no_context" };
-  if (
-    input.lastProbeAtMs != null &&
-    input.nowMs - input.lastProbeAtMs < input.minProbeIntervalMs
-  ) {
+  if (input.lastProbeAtMs != null && input.nowMs - input.lastProbeAtMs < input.minProbeIntervalMs) {
     return { type: "skip_probe", reason: "cooldown" };
   }
   if (input.motivationConfidence < 0.5) {

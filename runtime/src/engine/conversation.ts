@@ -109,7 +109,10 @@ export function detectConversationStart(G: WorldModel, event: GraphPerturbation)
 
   const tick = event.tick;
   const convId = `conversation:${channelId}_${tick}`;
-  const chatType = event.chatType ?? "group";
+  const chatType = event.chatType;
+  if (!chatType) {
+    throw new Error(`conversation event for ${channelId} is missing explicit chatType`);
+  }
   const isPrivate = chatType === "private";
 
   const initialState: ConversationState = isPrivate ? "opening" : "pending";
@@ -333,11 +336,10 @@ export function conversationMomentum(
 
 /**
  * 从图中查询 channel 的 chat_type。
- * 找不到时默认 "private"（保守：私聊使用更长超时）。
  */
-function getChannelChatType(G: WorldModel, channelId: string): ChatType {
-  if (!G.has(channelId)) return "private";
-  return G.getChannel(channelId).chat_type ?? "private";
+function getChannelChatType(G: WorldModel, channelId: string): ChatType | undefined {
+  if (!G.has(channelId)) return undefined;
+  return G.getChannel(channelId).chat_type;
 }
 
 /**

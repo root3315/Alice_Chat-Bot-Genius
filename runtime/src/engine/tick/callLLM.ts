@@ -161,7 +161,7 @@ function classifyTickFailure(error: unknown): TickFailureKind {
     return "provider_unavailable";
   }
   const status = extractErrorStatus(error);
-  if (status === 401 || status === 403) {
+  if (status === 401 || status === 402 || status === 403) {
     return "provider_unavailable";
   }
   return "llm_invalid";
@@ -195,9 +195,10 @@ async function generateBlockStep(
           model: provider(model),
           messages,
           temperature: BLOCK_TEMPERATURE,
+          maxRetries: 0,
           abortSignal: AbortSignal.timeout(BLOCK_TIMEOUT_MS),
         }),
-      {},
+      { maxRetries: 0 },
       name,
     );
 
@@ -267,7 +268,14 @@ async function generateBlockStep(
   throw new Error("unreachable");
 }
 
-function safeAuditProviderContext(): ProviderAuditContext | null {
+function safeAuditProviderContext(provider?: AvailableProvider): ProviderAuditContext | null {
+  if (provider) {
+    return {
+      provider: provider.name,
+      model: provider.model,
+      breakerState: getBreakerState(provider.name),
+    };
+  }
   try {
     const provider = selectProviderForFirstPass();
     return {
@@ -298,7 +306,7 @@ export async function callTickLLM(
     return makeBlockResult(generated, execution);
   } catch (e) {
     log.error("Tick LLM call failed", e);
-    const provider = safeAuditProviderContext();
+    const provider = safeAuditProviderContext(selectedProvider);
     writeAuditEvent(tick, "error", "tick", "LLM call failed", {
       voice,
       target,

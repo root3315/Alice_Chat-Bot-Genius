@@ -1,105 +1,40 @@
 /**
  * Episode Mod — ADR-215 Cognitive Episode Graph 的 LLM 可见层。
  *
- * 1. contribute(): 当前 episode 有 caused_by 时注入 carry-over 指针
- * 2. query: episodeContext — 查看指定 episode 的上下文
- * 3. query: recentEpisodes — 最近 N 个 episode 的摘要
+ * 1. query: episodeContext — 查看指定 episode 的上下文
+ * 2. query: recentEpisodes — 最近 N 个 episode 的摘要
  *
  * @see docs/adr/215-cognitive-episode-graph.md
  */
-import { desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { createMod } from "../core/mod-builder.js";
 import { PromptBuilder } from "../core/prompt-style.js";
 import type { ContributionItem } from "../core/types.js";
-import { section } from "../core/types.js";
+import { readModState, section } from "../core/types.js";
 import { getDb } from "../db/connection.js";
 import { episodes } from "../db/schema.js";
-import { type EpisodeResidue, recordConsults } from "../engine/episode.js";
+import { recordConsults } from "../engine/episode.js";
+import { ensureChannelId, ensureContactId } from "../graph/constants.js";
 import { safeDisplayName } from "../graph/display.js";
+
+const CONTINUITY_FRESHNESS_MS = 2 * 60 * 60 * 1000;
+const CONTINUITY_TYPES = new Set(["unfinished", "unresolved_emotion", "interrupted"]);
+
+interface EpisodeContinuityResidue {
+  type?: string;
+  toward?: string | null;
+  reason?: string;
+  createdMs?: number;
+}
 
 // biome-ignore lint/complexity/noBannedTypes: 无状态 Mod
 export const episodeMod = createMod<{}>("episode", {
   category: "mechanic",
-  description: "认知片段因果图 — carry-over 指针 + episode 查询",
+  description: "认知片段因果图 — episode 查询",
   initialState: {},
 })
-  .contribute((ctx): ContributionItem[] => {
-    // 直接查 DB 获取最近的 episode（无需跨 mod 状态读取）
-    let currentEpisode: {
-      id: string;
-      causedBy: string | null;
-      target: string | null;
-    } | null = null;
-
-    try {
-      currentEpisode =
-        getDb()
-          .select({
-            id: episodes.id,
-            causedBy: episodes.causedBy,
-            target: episodes.target,
-          })
-          .from(episodes)
-          .where(isNotNull(episodes.tickStart))
-          .orderBy(desc(episodes.tickStart))
-          .limit(1)
-          .get() ?? null;
-    } catch {
-      return [];
-    }
-
-    if (!currentEpisode?.causedBy) return [];
-
-    // 解析 caused_by IDs
-    let causedByIds: string[];
-    try {
-      causedByIds = JSON.parse(currentEpisode.causedBy);
-    } catch {
-      return [];
-    }
-    if (causedByIds.length === 0) return [];
-
-    // 获取 caused_by episode 的信息
-    const pb = new PromptBuilder();
-    pb.heading("Carry-over");
-
-    for (const cbId of causedByIds.slice(0, 2)) {
-      try {
-        const row = getDb().select().from(episodes).where(eq(episodes.id, cbId)).get();
-        if (!row) continue;
-
-        const targetName = row.target ? safeDisplayName(ctx.graph, row.target) : "(somewhere)";
-        const residue: EpisodeResidue | null = row.residue ? JSON.parse(row.residue) : null;
-
-        // 用原始信号构造可理解的文本，不用语义分类硬编码
-        if (residue) {
-          const parts: string[] = [];
-          parts.push(`你刚从 ${targetName} 过来`);
-          // 用 outcome 原始信号（不用 type 分类）
-          if (residue.outcome === "error") parts.push("但消息没发出去");
-          else if (residue.outcome === "silence") parts.push("你选择了沉默");
-          else if (residue.outcome === "preempted") parts.push("但被打断了");
-          if (residue.toward) {
-            const towardName = safeDisplayName(ctx.graph, residue.toward);
-            parts.push(`心里还惦记着 ${towardName}`);
-          }
-          pb.line(`- ${parts.join("，")}。`);
-          pb.line(`  如需回顾: self episode-context id=${cbId}`);
-        } else {
-          pb.line(`- 你刚从 ${targetName} 过来。`);
-          pb.line(`  如需回顾: self episode-context id=${cbId}`);
-        }
-      } catch {}
-    }
-
-    const lines = pb.build();
-    if (lines.length === 0) return [];
-
-    // order=5.5 → situation(5) 之后、awareness(6) 之前
-    return [section("carry-over", lines, "Carry-over", 5.5, 74)];
-  })
   .query("episode_context", {
     params: z.object({
       id: z.string().describe("episode ID (e.g. episode:32311)"),
@@ -109,7 +44,7 @@ export const episodeMod = createMod<{}>("episode", {
       priority: "capability",
       category: "memory",
       whenToUse: "When you need to recall what happened in a past episode",
-      whenNotToUse: "When the carry-over hint already gives you enough context",
+      whenNotToUse: "When the current conversation already gives you enough context",
     },
     returns: "{ id, target, voice, outcome, residue, causedBy, resolves, tickRange }",
     returnHint: "{id, target, outcome, residue, causedBy}",
@@ -199,4 +134,81 @@ export const episodeMod = createMod<{}>("episode", {
       });
     },
   })
+  .contribute((ctx): ContributionItem[] => {
+    const relState = readModState(ctx, "relationships");
+    const currentTarget = relState?.targetNodeId ?? null;
+    if (!currentTarget) return [];
+
+    const carry = findTargetContinuity(currentTarget, ctx.nowMs);
+    if (!carry) return [];
+
+    const targetName = ctx.graph.has(currentTarget)
+      ? safeDisplayName(ctx.graph, currentTarget)
+      : currentTarget;
+
+    const m = new PromptBuilder();
+    m.line(
+      carry.reason
+        ? `Something still feels open with ${targetName}: ${carry.reason}`
+        : `Something still feels open with ${targetName}.`,
+    );
+
+    return [section("conversation-continuity", m.build(), undefined, 18, 72)];
+  })
   .build();
+
+function findTargetContinuity(currentTarget: string, nowMs: number): { reason?: string } | null {
+  const cutoff = nowMs - CONTINUITY_FRESHNESS_MS;
+  const rows = getDb()
+    .select({
+      residue: episodes.residue,
+      target: episodes.target,
+      createdMs: episodes.createdMs,
+    })
+    .from(episodes)
+    .where(and(isNotNull(episodes.residue), gt(episodes.createdMs, cutoff)))
+    .orderBy(desc(episodes.createdMs))
+    .limit(10)
+    .all();
+
+  for (const row of rows) {
+    if (!row.residue) continue;
+    const parsed = parseContinuityResidue(row.residue);
+    if (!parsed) continue;
+    if (!CONTINUITY_TYPES.has(parsed.type ?? "")) continue;
+    if (!targetMatches(currentTarget, parsed.toward ?? row.target)) continue;
+    return {
+      reason:
+        typeof parsed.reason === "string" && parsed.reason.trim()
+          ? parsed.reason.trim()
+          : undefined,
+    };
+  }
+
+  return null;
+}
+
+function parseContinuityResidue(raw: string): EpisodeContinuityResidue | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as EpisodeContinuityResidue;
+  } catch {
+    return null;
+  }
+}
+
+function targetMatches(currentTarget: string, candidate: string | null | undefined): boolean {
+  if (!candidate) return false;
+  if (candidate === currentTarget) return true;
+  const currentChannel = ensureChannelId(currentTarget);
+  const currentContact = ensureContactId(currentTarget);
+  const candidateChannel = ensureChannelId(candidate);
+  const candidateContact = ensureContactId(candidate);
+  return (
+    (!!currentChannel && currentChannel === candidateChannel) ||
+    (!!currentContact && currentContact === candidateContact) ||
+    (!!currentChannel && currentChannel === candidate) ||
+    (!!currentContact && currentContact === candidate)
+  );
+}

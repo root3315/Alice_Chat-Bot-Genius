@@ -48,7 +48,12 @@ interface ActionLogSnapshot {
   failureClass: FailureClass;
 }
 
-type FailureClass = "none" | "provider_failure" | "engine_failure" | "contract_failure" | "strategy_failure";
+type FailureClass =
+  | "none"
+  | "provider_failure"
+  | "engine_failure"
+  | "contract_failure"
+  | "strategy_failure";
 type ContinuationAuditClass =
   | "read_then_act_needed"
   | "action_already_completed"
@@ -75,7 +80,10 @@ function extractCodeBlock(markdown: string, heading: string): string {
   const contentStart = fenceStart + 3;
   const fenceEnd = section.indexOf("```", contentStart);
   if (fenceEnd === -1) return "";
-  return section.slice(contentStart, fenceEnd).replace(/^\w*\n/, "").trim();
+  return section
+    .slice(contentStart, fenceEnd)
+    .replace(/^\w*\n/, "")
+    .trim();
 }
 
 function extractBullet(section: string, key: string): string | null {
@@ -89,7 +97,11 @@ function parseNullableNumber(value: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function countCommands(script: string): { commandCount: number; socialActionCount: number; usedLegacyTail: boolean } {
+function countCommands(script: string): {
+  commandCount: number;
+  socialActionCount: number;
+  usedLegacyTail: boolean;
+} {
   let commandCount = 0;
   let socialActionCount = 0;
   let usedLegacyTail = false;
@@ -139,7 +151,11 @@ function readPromptSnapshot(path: string): PromptExecutionSnapshot | null {
   };
 }
 
-function listPromptSnapshots(dir: string, limit: number, sinceMs: number | null): PromptExecutionSnapshot[] {
+function listPromptSnapshots(
+  dir: string,
+  limit: number,
+  sinceMs: number | null,
+): PromptExecutionSnapshot[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((name) => name.endsWith(".md"))
@@ -147,7 +163,7 @@ function listPromptSnapshots(dir: string, limit: number, sinceMs: number | null)
     .map(readPromptSnapshot)
     .filter((item): item is PromptExecutionSnapshot => item != null)
     .filter((item) => sinceMs == null || item.mtimeMs >= sinceMs)
-    .sort((a, b) => (b.mtimeMs - a.mtimeMs) || (b.tick - a.tick) || (b.round - a.round))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.tick - a.tick || b.round - a.round)
     .slice(0, limit);
 }
 
@@ -237,7 +253,9 @@ export function renderExecutionGrainReport(options: ExecutionGrainReportOptions)
 
   const r0 = prompts.filter((prompt) => prompt.round === 0);
   const r0SingleCommand = r0.filter((prompt) => prompt.commandCount === 1).length;
-  const ticksWithMultiRound = [...promptsByTick.values()].filter((items) => items.length > 1).length;
+  const ticksWithMultiRound = [...promptsByTick.values()].filter(
+    (items) => items.length > 1,
+  ).length;
   const continuationReasons = prompts
     .map((prompt) => prompt.hostContinuationReason)
     .filter((item): item is string => item != null);

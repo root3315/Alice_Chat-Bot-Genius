@@ -27,7 +27,10 @@ export function latestApplicableSummary(
   summaries: readonly CompactionSummary[],
 ): CompactionSummary | null {
   if (summaries.length === 0) return null;
-  return [...summaries].sort((a, b) => b.createdAtMs - a.createdAtMs || b.cursorMs - a.cursorMs)[0] ?? null;
+  return (
+    [...summaries].sort((a, b) => b.createdAtMs - a.createdAtMs || b.cursorMs - a.cursorMs)[0] ??
+    null
+  );
 }
 
 export function applyCompactionSummary(

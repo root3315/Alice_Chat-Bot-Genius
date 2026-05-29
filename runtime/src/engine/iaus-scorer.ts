@@ -73,6 +73,8 @@ const INACTIVITY_STALE_GRACE_MS = 24 * 3600_000;
 const INACTIVITY_STALE_FULL_MS = 7 * 24 * 3600_000;
 /** stale 不是不可达证明，所以只软降权，不清零。 */
 const INACTIVITY_STALE_MIN = 0.15;
+/** ADR-273/274: class cadence is soft self-pacing, not target eligibility. */
+const CLASS_PACING_MIN = 0.05;
 
 /**
  * ADR-218 Phase 2: U_fairness — CFS-inspired 服务比例公平 Consideration。
@@ -297,6 +299,24 @@ export interface IAUSCandidateDiagnostics {
   timingShadow?: TimingShadowDiagnostic;
 }
 
+export type IAUSFilterReason =
+  | "target_whitelist"
+  | "excluded_active_target"
+  | "permanent_failure"
+  | "consecutive_outgoing_cap"
+  | "closing_conversation"
+  | "crisis_mode"
+  | "class_rate_cap"
+  | "per_target_rate_limit"
+  | "channel_action_scope"
+  | "below_epsilon";
+
+export interface IAUSFilterStats {
+  totalChannels: number;
+  eligibleTargets: number;
+  filtered: Partial<Record<IAUSFilterReason, number>>;
+}
+
 export interface IAUSResult {
   candidate: IAUSCandidate;
   bestV: number;
@@ -305,6 +325,7 @@ export interface IAUSResult {
   winnerBypassGates: boolean;
   spread: number;
   scored: IAUSScoredCandidate[];
+  filterStats: IAUSFilterStats;
 }
 
 export interface IAUSConfig {
@@ -406,6 +427,17 @@ export function computeCandidateBypass(ctx: CandidateContext, target: string): b
   const isContinuation = !targetHasDirected && isConversationContinuation(G, target, nowMs);
 
   return targetHasDirected || isContinuation;
+}
+
+export function computeCandidateStrongObligation(ctx: CandidateContext, target: string): boolean {
+  const { G, nowMs } = ctx;
+  if (!G.has(target)) return false;
+  if (G.getChannel(target).failure_type === "permanent") return false;
+
+  const rawDirected = Number(G.getChannel(target).pending_directed ?? 0);
+  if (rawDirected > 0) return true;
+
+  return effectiveObligation(G, target, nowMs) > OBLIGATION_THRESHOLDS.bypassGates;
 }
 
 /**
@@ -533,6 +565,25 @@ export function computeEmotionActionUtility(opts: {
   }
 
   return Math.max(EMOTION_ACTION_UTILITY_MIN, Math.min(EMOTION_ACTION_UTILITY_MAX, utility));
+}
+
+export function computeClassPacingUtility(opts: {
+  classActionCount?: number;
+  classSoftBudget?: number;
+  bypassGates: boolean;
+}): number {
+  if (opts.bypassGates) return 1.0;
+
+  const count = Math.max(0, Number(opts.classActionCount ?? 0));
+  const budget = Math.max(0, Number(opts.classSoftBudget ?? Number.POSITIVE_INFINITY));
+  if (!Number.isFinite(budget)) return 1.0;
+  if (budget <= 0) return CLASS_PACING_MIN;
+
+  const excess = Math.max(0, count - budget);
+  if (excess <= 0) return 1.0;
+
+  const lambda = Math.max(1, budget / 2);
+  return Math.max(CLASS_PACING_MIN, Math.exp(-excess / lambda));
 }
 
 /**
@@ -967,14 +1018,36 @@ export function scoreAllCandidates(
   recentActions: Array<{ tick: number; action: string; ms?: number; target?: string | null }>,
   config: IAUSConfig,
 ): IAUSResult | null {
+  return scoreAllCandidatesDetailed(tensionMap, G, tick, recentActions, config).result;
+}
+
+export function scoreAllCandidatesDetailed(
+  tensionMap: Map<string, TensionVector>,
+  G: WorldModel,
+  tick: number,
+  recentActions: Array<{ tick: number; action: string; ms?: number; target?: string | null }>,
+  config: IAUSConfig,
+): { result: IAUSResult | null; filterStats: IAUSFilterStats } {
   const { nowMs, candidateCtx, saturationCost: satConfig, windowStartMs } = config;
-  if (isSelfResting(G, nowMs)) return null;
+  const filterStats: IAUSFilterStats = {
+    totalChannels: G.getEntitiesByType("channel").length,
+    eligibleTargets: 0,
+    filtered: {},
+  };
+  const noteFiltered = (reason: IAUSFilterReason, count = 1) => {
+    filterStats.filtered[reason] = (filterStats.filtered[reason] ?? 0) + count;
+  };
+
+  if (isSelfResting(G, nowMs)) return { result: null, filterStats };
 
   const selfMood = readSelfMood(G, nowMs);
   const emotionControl = readEmotionControlPatch(G, nowMs);
-  const channels = G.getEntitiesByType("channel").filter(
-    (target) => !config.targetWhitelist || config.targetWhitelist.has(target),
-  );
+  const channels = G.getEntitiesByType("channel").filter((target) => {
+    const allowed = !config.targetWhitelist || config.targetWhitelist.has(target);
+    if (!allowed) noteFiltered("target_whitelist");
+    return allowed;
+  });
+  filterStats.eligibleTargets = channels.length;
 
   const scored: Array<{
     candidate: IAUSCandidate;
@@ -983,14 +1056,20 @@ export function scoreAllCandidates(
   }> = [];
 
   for (const target of channels) {
-    if (config.excludeTargets?.has(target)) continue;
+    if (config.excludeTargets?.has(target)) {
+      noteFiltered("excluded_active_target");
+      continue;
+    }
 
     // Pre-filter: permanent 不可达 target 不评分
-    if (G.has(target) && G.getChannel(target).failure_type === "permanent") continue;
+    if (G.has(target) && G.getChannel(target).failure_type === "permanent") {
+      noteFiltered("permanent_failure");
+      continue;
+    }
 
     // 每个 target 只计算一次的共享输入
     const tension = tensionMap.get(target) ?? ZERO_TENSION;
-    const chatType = G.has(target) ? (G.getChannel(target).chat_type ?? "private") : "private";
+    const chatType = G.has(target) ? G.getChannel(target).chat_type : "private";
     const rawReach = G.has(target) ? G.getChannel(target).reachability_score : undefined;
     const reachabilityScore =
       typeof rawReach === "number" && !Number.isNaN(rawReach) ? rawReach : 1.0;
@@ -1004,38 +1083,45 @@ export function scoreAllCandidates(
     ).length;
 
     const bypass = computeCandidateBypass(candidateCtx, target);
+    const strongObligation = computeCandidateStrongObligation(candidateCtx, target);
 
     // Pre-filter: consecutive_outgoing >= cap 且无义务 → 跳过（防垃圾轰炸）
     // 在 V-max 中此逻辑通过 C_sat σ_out 使 V ≤ 0 实现；IAUS 乘法不支持绝对否决，
     // 因此改为硬门控。义务信号（bypassGates）绕过此限制。
     const isGroupChat = ChatTarget.isGroupChat(chatType);
     const outgoingCap = isGroupChat ? satConfig.outgoingCapGroup : satConfig.outgoingCapPrivate;
-    if (!bypass && consecutiveOutgoing >= outgoingCap) continue;
+    if (!strongObligation && consecutiveOutgoing >= outgoingCap) {
+      noteFiltered("consecutive_outgoing_cap");
+      continue;
+    }
 
     const perTargetCap = bypass ? satConfig.perTargetCapBypass : satConfig.perTargetCap;
-    const freshness = perTargetCap > 0 ? targetActionsInWindow / perTargetCap : 0;
+    const freshness =
+      strongObligation || perTargetCap <= 0 ? 0 : targetActionsInWindow / perTargetCap;
+    const channelClass = classifyChatType(chatType, resolveIsBot(G, target));
 
     // ── ADR-189: 4 个 gate 内化到 IAUS per-candidate pre-filter ──
 
     // 1. Closing conversation — leave() 承诺封锁（无条件，bypass 不穿透告别承诺）
-    if (gateClosingConversation(G, target).type === "silent") continue;
-
-    // 2. Crisis mode — 危机频道无义务时封锁
-    if (!bypass && config.crisisChannels?.includes(target)) continue;
-
-    // 3. Class rate cap — chat-type-aware 硬上限（ADR-189: bot scope 通过 isBot 区分）
-    if (!bypass && config.classRateCaps && config.classActionCounts) {
-      const cls = classifyChatType(chatType, resolveIsBot(G, target));
-      if (
-        (config.classActionCounts[cls] ?? 0) >=
-        (config.classRateCaps[cls] ?? Number.POSITIVE_INFINITY)
-      )
-        continue;
+    if (gateClosingConversation(G, target).type === "silent") {
+      noteFiltered("closing_conversation");
+      continue;
     }
 
-    // 4. Per-target rate limit (hard filter, replaces retry loop in evolve.ts)
-    if (targetActionsInWindow >= perTargetCap) continue;
+    // 2. Crisis mode — 危机频道无义务时封锁
+    if (!bypass && config.crisisChannels?.includes(target)) {
+      noteFiltered("crisis_mode");
+      continue;
+    }
 
+    // ADR-273/274: class/per-target ordinary cadence is not target eligibility.
+    // Per-target density is already represented by U_freshness; class density is
+    // represented below by post-CF U_class_pacing so it remains visible in traces.
+    const classPacingUtility = computeClassPacingUtility({
+      bypassGates: bypass,
+      classActionCount: config.classActionCounts?.[channelClass],
+      classSoftBudget: config.classRateCaps?.[channelClass],
+    });
     const proactivePacingUtility = computeProactivePacingUtility({
       chatType,
       bypassGates: bypass,
@@ -1071,7 +1157,7 @@ export function scoreAllCandidates(
       reachabilityScore,
       effSilences,
       freshness,
-      consecutiveOutgoing,
+      consecutiveOutgoing: strongObligation ? 0 : consecutiveOutgoing,
       bypassGates: bypass,
     };
 
@@ -1079,7 +1165,10 @@ export function scoreAllCandidates(
     for (const actionType of IAUS_ACTIONS) {
       // ADR-206: 频道只能被 curiosity 选中（信息流实体，非社交对等体）。
       // diligence 在 W7 频道发布实现后可放开（admin/owner 限定）。
-      if (chatType === "channel" && actionType !== "curiosity") continue;
+      if (chatType === "channel" && actionType !== "curiosity") {
+        noteFiltered("channel_action_scope");
+        continue;
+      }
       const shared = computeSharedConsiderations(sharedInputs, actionType, config, selfMood);
       let specific: Record<string, number>;
       let n: number;
@@ -1122,6 +1211,7 @@ export function scoreAllCandidates(
 
       // ADR-251: private proactive pacing — post-CF utility。
       // 只压无人回应的 unsolicited private proactive；directed/hot-chat/group/channel 均为 1.0。
+      compensatedScore *= classPacingUtility;
       compensatedScore *= proactivePacingUtility;
       compensatedScore *= emotionProactiveCapUtility;
       compensatedScore *= inactivityStaleUtility;
@@ -1134,6 +1224,7 @@ export function scoreAllCandidates(
       compensatedScore *= emotionActionUtility;
       const allConsiderations = {
         ...preCFConsiderations,
+        U_class_pacing: classPacingUtility,
         U_proactive_pacing: proactivePacingUtility,
         U_emotion_proactive_cap: emotionProactiveCapUtility,
         U_inactivity_stale: inactivityStaleUtility,
@@ -1172,7 +1263,10 @@ export function scoreAllCandidates(
       }
 
       // ε 过滤
-      if (compensatedScore <= EPSILON) continue;
+      if (compensatedScore <= EPSILON) {
+        noteFiltered("below_epsilon");
+        continue;
+      }
 
       // deltaP 和 socialCost 用于审计
       const rawDeltaP = estimateDeltaP(config.contributions, target, config.kappa);
@@ -1205,7 +1299,7 @@ export function scoreAllCandidates(
     }
   }
 
-  if (scored.length === 0) return null;
+  if (scored.length === 0) return { result: null, filterStats };
 
   // ── ADR-218 Phase 2: U_fairness — CFS-inspired 服务比例公平 ────────
   //
@@ -1323,13 +1417,14 @@ export function scoreAllCandidates(
     }
   }
 
-  return {
+  const result: IAUSResult = {
     candidate: pool[winnerIdx].candidate,
     bestV: pool[winnerIdx].V,
     candidateCount: pool.length,
     selectedProbability: probs[winnerIdx],
     winnerBypassGates: pool[winnerIdx].bypassGates,
     spread,
+    filterStats,
     // D5: scored 返回全部候选（审计完整性），保留反事实所需的结构化字段。
     scored: scored.map((s) => ({
       action: s.candidate.action,
@@ -1347,6 +1442,7 @@ export function scoreAllCandidates(
       diagnostics: s.candidate.diagnostics,
     })),
   };
+  return { result, filterStats };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

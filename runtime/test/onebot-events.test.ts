@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createOneBotTransportAdapter, type OneBotHttpFetch } from "../src/platform/onebot.js";
+import {
+  createOneBotTransportAdapter,
+  type OneBotHttpFetch,
+  parseOneBotActionResponse,
+} from "../src/platform/onebot.js";
 import {
   cacheOneBotOutgoingMsg,
   clearOneBotOutgoingMsgCacheForTest,
@@ -149,6 +153,7 @@ describe("OneBot message event mapper", () => {
 
     expect(mapped.event).toMatchObject({
       type: "new_message",
+      chatType: "group",
       tick: 11,
       channelId: "channel:qq:123",
       contactId: "contact:qq:789",
@@ -187,5 +192,32 @@ describe("OneBot message event mapper", () => {
     );
 
     expect(mapped.event.directed).toBe(true);
+  });
+
+  it("decodes OneBot action success responses with nested message ids", () => {
+    expect(
+      parseOneBotActionResponse(
+        JSON.stringify({ status: "ok", retcode: 0, data: { message_id: 321 } }),
+      ),
+    ).toEqual({
+      status: "ok",
+      retcode: 0,
+      messageId: 321,
+    });
+  });
+
+  it("decodes OneBot action failure responses without returning raw maps", () => {
+    expect(parseOneBotActionResponse(JSON.stringify({ status: "failed", retcode: 1400 }))).toEqual({
+      status: "failed",
+      retcode: 1400,
+      messageId: null,
+    });
+  });
+
+  it("decodes OneBot action top-level message ids", () => {
+    expect(parseOneBotActionResponse(JSON.stringify({ retcode: 0, message_id: "m-1" }))).toEqual({
+      retcode: 0,
+      messageId: "m-1",
+    });
   });
 });

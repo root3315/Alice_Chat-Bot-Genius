@@ -7,6 +7,7 @@
  *
  * @see docs/adr/248-dcp-reference-implementation-plan/README.md
  */
+import type { ChatType } from "../graph/entities.js";
 import type { GraphPerturbation } from "./mapper.js";
 
 export type CanonicalEventKind =
@@ -20,13 +21,7 @@ export type CanonicalEventKind =
   | "runtime"
   | "action_result";
 
-export type CanonicalContentType =
-  | "text"
-  | "sticker"
-  | "photo"
-  | "voice"
-  | "video"
-  | "document";
+export type CanonicalContentType = "text" | "sticker" | "photo" | "voice" | "video" | "document";
 
 interface CanonicalEventBase {
   kind: CanonicalEventKind;
@@ -46,7 +41,7 @@ export interface CanonicalMessageEvent extends CanonicalEventBase {
   senderName: string | null;
   displayName: string | null;
   chatDisplayName: string | null;
-  chatType: string | null;
+  chatType: ChatType;
   contentType: CanonicalContentType;
   senderIsBot: boolean;
   forwardFromChannelId: string | null;
@@ -71,14 +66,6 @@ const perturbationToKind = (type: GraphPerturbation["type"]): CanonicalEventKind
   return type;
 };
 
-const kindToPerturbationType = (kind: CanonicalEventKind): GraphPerturbation["type"] => {
-  if (kind === "message") return "new_message";
-  if (kind === "runtime" || kind === "action_result") {
-    throw new Error(`Canonical event kind ${kind} cannot be converted to GraphPerturbation yet`);
-  }
-  return kind;
-};
-
 export function canonicalFromPerturbation(event: GraphPerturbation): CanonicalEvent {
   const base = {
     kind: perturbationToKind(event.type),
@@ -90,7 +77,7 @@ export function canonicalFromPerturbation(event: GraphPerturbation): CanonicalEv
     novelty: event.novelty ?? null,
   } satisfies CanonicalEventBase;
 
-  if (base.kind === "message") {
+  if (event.type === "new_message") {
     return {
       ...base,
       kind: "message",
@@ -99,7 +86,7 @@ export function canonicalFromPerturbation(event: GraphPerturbation): CanonicalEv
       senderName: event.senderName ?? null,
       displayName: event.displayName ?? null,
       chatDisplayName: event.chatDisplayName ?? null,
-      chatType: event.chatType ?? null,
+      chatType: event.chatType,
       contentType: event.contentType ?? "text",
       senderIsBot: event.senderIsBot ?? false,
       forwardFromChannelId: event.forwardFromChannelId ?? null,
@@ -108,7 +95,7 @@ export function canonicalFromPerturbation(event: GraphPerturbation): CanonicalEv
     };
   }
 
-  if (base.kind === "reaction") {
+  if (event.type === "reaction") {
     return {
       ...base,
       kind: "reaction",
@@ -121,8 +108,7 @@ export function canonicalFromPerturbation(event: GraphPerturbation): CanonicalEv
 }
 
 export function perturbationFromCanonical(event: CanonicalEvent): GraphPerturbation {
-  const base: GraphPerturbation = {
-    type: kindToPerturbationType(event.kind),
+  const base = {
     tick: event.tick,
     channelId: event.channelId ?? undefined,
     contactId: event.contactId ?? undefined,
@@ -132,15 +118,19 @@ export function perturbationFromCanonical(event: CanonicalEvent): GraphPerturbat
   };
 
   if (event.kind === "message") {
+    if (!event.channelId) {
+      throw new Error("Canonical message event is missing explicit channelId");
+    }
     return {
       ...base,
       type: "new_message",
+      channelId: event.channelId,
       isContinuation: event.continuation,
       messageText: event.text ?? undefined,
       senderName: event.senderName ?? undefined,
       displayName: event.displayName ?? undefined,
       chatDisplayName: event.chatDisplayName ?? undefined,
-      chatType: event.chatType ?? undefined,
+      chatType: event.chatType,
       contentType: event.contentType,
       senderIsBot: event.senderIsBot,
       forwardFromChannelId: event.forwardFromChannelId ?? undefined,
@@ -158,5 +148,14 @@ export function perturbationFromCanonical(event: CanonicalEvent): GraphPerturbat
     };
   }
 
-  return base;
+  if (event.kind === "runtime" || event.kind === "action_result") {
+    throw new Error(
+      `Canonical event kind ${event.kind} cannot be converted to GraphPerturbation yet`,
+    );
+  }
+
+  return {
+    ...base,
+    type: event.kind,
+  };
 }

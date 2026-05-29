@@ -145,6 +145,7 @@ describe("mapper event self-healing", () => {
     const G = makeGraphWithFailure();
     applyPerturbation(G, {
       type: "new_message",
+      chatType: "group",
       channelId: "channel:100",
       contactId: "contact:42",
       tick: 100,
@@ -188,6 +189,7 @@ describe("mapper event self-healing", () => {
 
     applyPerturbation(G, {
       type: "new_message",
+      chatType: "group",
       channelId: "channel:100",
       contactId: "contact:42",
       tick: 100,
@@ -208,6 +210,7 @@ describe("mapper event self-healing", () => {
 
     applyPerturbation(G, {
       type: "new_message",
+      chatType: "group",
       channelId: "channel:100",
       tick: 100,
     });

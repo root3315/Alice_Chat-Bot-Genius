@@ -180,6 +180,7 @@ function buildDirectedIausState(): EvolveState {
   state.G.addRelation("self", "monitors", "channel:253");
   state.buffer.push({
     type: "new_message",
+    chatType: "group",
     channelId: "channel:253",
     isDirected: true,
     tick: 1,
@@ -252,6 +253,7 @@ describe("★A1+A3 空闲自启动", () => {
     // 注入一个事件以产生 eventCount > 0
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "ch1",
       isDirected: true,
       tick: 1,
@@ -342,6 +344,7 @@ describe("★A1+A3 空闲自启动", () => {
 
       state.buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "channel:other",
         isDirected: true,
         tick: 1,
@@ -424,6 +427,7 @@ describe("★A1+A3 空闲自启动", () => {
       // 注入事件以产生足够压力
       state.buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "channel:crisis",
         isDirected: true,
         tick: 1,
@@ -507,6 +511,7 @@ describe("★A1+A3 空闲自启动", () => {
 
       state.buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "ch1",
         isDirected: true,
         tick: 1,
@@ -836,6 +841,7 @@ describe("ADR-136: proactive cooldown 连续化后的管线行为", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:test",
       isDirected: false,
       tick: 10,
@@ -923,6 +929,7 @@ describe("ADR-136: proactive cooldown 连续化后的管线行为", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:test",
       isDirected: false,
       tick: 10,

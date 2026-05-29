@@ -111,7 +111,7 @@ export function effectiveObligation(G: WorldModel, channelId: string, nowMs: num
   if (lastDirectedMs <= 0) return directed;
 
   const ageS = Math.max(0, (nowMs - lastDirectedMs) / 1000);
-  const chatType = attrs.chat_type ?? "private";
+  const chatType = attrs.chat_type;
   const halfLife = ChatTarget.isGroupChat(chatType)
     ? OBLIGATION_HALFLIFE_GROUP
     : OBLIGATION_HALFLIFE_PRIVATE;

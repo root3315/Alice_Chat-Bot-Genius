@@ -51,37 +51,43 @@ describe("RC/TR merge", () => {
 
   it("renders a provider-neutral merged timeline", () => {
     const merged = mergeRenderedContextAndTurns(rc, trs);
-    expect(mergedTimelineToText(merged)).toBe([
-      'user:<message tick="1">hello</message>',
-      "assistant:Thinking\ntool:sent",
-      'user:<message tick="2">follow-up</message>',
-      "assistant:I saw that.",
-    ].join("\n"));
+    expect(mergedTimelineToText(merged)).toBe(
+      [
+        'user:<message tick="1">hello</message>',
+        "assistant:Thinking\ntool:sent",
+        'user:<message tick="2">follow-up</message>',
+        "assistant:I saw that.",
+      ].join("\n"),
+    );
   });
   it("renders block result and host restatement entries", () => {
-    const merged = mergeRenderedContextAndTurns([], [
-      {
-        requestedAtMs: 3000,
-        actionLogId: 8,
-        entries: [
-          { kind: "block", script: "send_message('hi')", afterward: "done" },
-          { kind: "tool_result", name: "send_message", output: "msgId=10", ok: true },
-          {
-            kind: "host_restatement",
-            summary: "block completed",
-            observations: ["message sent"],
-            completedActions: ["sent:chatId=channel:1:msgId=10"],
-            errors: [],
-          },
-        ],
-      },
-    ]);
+    const merged = mergeRenderedContextAndTurns(
+      [],
+      [
+        {
+          requestedAtMs: 3000,
+          actionLogId: 8,
+          entries: [
+            { kind: "block", script: "send_message('hi')", afterward: "done" },
+            { kind: "tool_result", name: "send_message", output: "msgId=10", ok: true },
+            {
+              kind: "host_restatement",
+              summary: "block completed",
+              observations: ["message sent"],
+              completedActions: ["sent:chatId=channel:1:msgId=10"],
+              errors: [],
+            },
+          ],
+        },
+      ],
+    );
 
-    expect(mergedTimelineToText(merged)).toBe([
-      "assistant:block afterward=done\nsend_message('hi')",
-      "tool:send_message ok=true\nmsgId=10",
-      'system:host block completed observations=["message sent"] completed=["sent:chatId=channel:1:msgId=10"]',
-    ].join("\n"));
+    expect(mergedTimelineToText(merged)).toBe(
+      [
+        "assistant:block afterward=done\nsend_message('hi')",
+        "tool:send_message ok=true\nmsgId=10",
+        'system:host block completed observations=["message sent"] completed=["sent:chatId=channel:1:msgId=10"]',
+      ].join("\n"),
+    );
   });
-
 });

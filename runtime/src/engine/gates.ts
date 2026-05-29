@@ -68,7 +68,7 @@ export function countActionsByClass(
   const counts: Record<ChannelClass, number> = { private: 0, group: 0, channel: 0, bot: 0 };
   for (const a of recentActions) {
     if (!a.target) continue;
-    const chatType = G.has(a.target) ? (G.getChannel(a.target).chat_type ?? undefined) : undefined;
+    const chatType = G.has(a.target) ? G.getChannel(a.target).chat_type : undefined;
     const isBot = resolveIsBot(G, a.target);
     counts[classifyChatType(chatType, isBot)]++;
   }
@@ -102,6 +102,12 @@ export interface SilenceValues {
   queueSaturation?: number;
   /** ADR-252: threshold that triggered queue backpressure. */
   queueBackpressureThreshold?: number;
+  /** IAUS pre-filter: total channel targets considered before target whitelist. */
+  iausFilterTotalChannels?: number;
+  /** IAUS pre-filter: targets allowed after target whitelist. */
+  iausFilterEligibleTargets?: number;
+  /** IAUS pre-filter: count for the dominant empty-pool reason. */
+  iausFilterTopReasonCount?: number;
 }
 
 export type GateVerdict =
@@ -206,31 +212,6 @@ export function gateRateCap(
       type: "silent",
       level: "L2_ACTIVE_COOLING",
       reason: "rate_cap",
-      values: { apiValue },
-    };
-  }
-  return { type: "pass" };
-}
-
-/**
- * Gate: L2 Active Cooling — 指数衰减替代硬上限。
- * directed 目标跳过此 gate。
- * @see paper/ Definition 8, C_temp: density-based cooling
- */
-export function gateActiveCooling(
-  recentActionsCount: number,
-  lambdaC: number,
-  bypassGates: boolean,
-  apiValue: number,
-  rng: () => number = Math.random,
-): GateVerdict {
-  if (bypassGates) return { type: "pass" };
-  const actionProb = Math.exp(-recentActionsCount / Math.max(lambdaC, 0.01));
-  if (rng() > actionProb) {
-    return {
-      type: "silent",
-      level: "L2_ACTIVE_COOLING",
-      reason: "active_cooling",
       values: { apiValue },
     };
   }

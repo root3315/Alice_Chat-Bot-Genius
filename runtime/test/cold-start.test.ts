@@ -137,6 +137,7 @@ describe("ADR-54 S3: 冷启动放松", () => {
     // 注入事件以产生压力
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:test",
       isDirected: true,
       tick: 11,

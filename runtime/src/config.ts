@@ -312,7 +312,7 @@ function normalizeFocusWhitelistTarget(raw: string, source: string): string {
   const channelId = ensureChannelId(target);
   if (channelId) return channelId;
   throw new Error(
-    `${source} contains invalid focus whitelist target "${raw}". Use canonical channel:<platform>:<native-id> target ids, or a bare Telegram numeric chat id for compatibility.`,
+    `${source} contains invalid focus whitelist target "${raw}". Use canonical channel:<platform>:<native-id> target ids.`,
   );
 }
 
@@ -333,7 +333,9 @@ function loadFocusWhitelistFromConfig(focus: RuntimeTomlConfig["focus"]): {
   if (focus.whitelist.length > 0) {
     const normalized = new Set<string>();
     for (const [index, target] of focus.whitelist.entries()) {
-      normalized.add(normalizeFocusWhitelistTarget(target, `config.toml focus.whitelist[${index}]`));
+      normalized.add(
+        normalizeFocusWhitelistTarget(target, `config.toml focus.whitelist[${index}]`),
+      );
     }
     return { path: "config.toml:focus.whitelist", targets: normalized };
   }

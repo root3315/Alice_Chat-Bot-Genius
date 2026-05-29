@@ -12,7 +12,7 @@ import {
   updateConversation,
 } from "../engine/conversation.js";
 import { chatIdToContactId, DUNBAR_TIER_THETA, ensureChannelId } from "../graph/constants.js";
-import type { ChatType, DunbarTier } from "../graph/entities.js";
+import type { ChannelAttrs, ChatType, DunbarTier, Mutable } from "../graph/entities.js";
 import { findActiveConversation } from "../graph/queries.js";
 import type { WorldModel } from "../graph/world-model.js";
 import { getDefaultParams, type HawkesState, updateOnEvent } from "../pressure/hawkes.js";
@@ -47,29 +47,27 @@ export function detectInjectionPatterns(text: string): string | null {
   return null;
 }
 
-export interface GraphPerturbation {
-  type:
-    | "new_message"
-    | "read_history"
-    | "user_status"
-    | "contact_active"
-    | "reaction"
-    | "chat_member_update"
-    | "typing";
-  channelId?: string;
-  contactId?: string;
-  isDirected?: boolean;
+interface GraphPerturbationBase {
   tick: number;
   /** ADR-110: 墙钟时间戳（ms），用于替代 tick-based 属性写入。 */
   nowMs?: number;
   /** 消息的新鲜度/新奇度估计 */
   novelty?: number;
+}
+
+export type GraphPerturbation = GraphMessagePerturbation | GraphNonMessagePerturbation;
+
+export interface GraphMessagePerturbation extends GraphPerturbationBase {
+  type: "new_message";
+  channelId: string;
+  /** 频道类型必须来自 mapper/adapter，不允许下游猜测。 */
+  chatType: ChatType;
+  contactId?: string;
+  isDirected?: boolean;
   /** 发送者显示名（用于自动建节点） */
   displayName?: string;
   /** ADR-220: 频道/群组显示名（用于 channel 节点的 display_name）。 */
   chatDisplayName?: string;
-  /** 频道类型（private/group/supergroup） */
-  chatType?: string;
   /** 消息文本（用于 message_log 存储） */
   messageText?: string;
   /** 发送者名称（用于 message_log） */
@@ -93,6 +91,23 @@ export interface GraphPerturbation {
   tmeLinks?: string[];
 }
 
+export interface GraphNonMessagePerturbation extends GraphPerturbationBase {
+  type:
+    | "read_history"
+    | "user_status"
+    | "contact_active"
+    | "reaction"
+    | "chat_member_update"
+    | "typing";
+  channelId?: string;
+  contactId?: string;
+  isDirected?: boolean;
+  /** ADR-78 F1: reaction continuation 可唤醒 evolve，但不创建 message 事实。 */
+  isContinuation?: boolean;
+  emoji?: string;
+  messageId?: number;
+}
+
 /**
  * 确保 channel 节点存在，不存在则自动创建。
  * ADR-220: 新增 chatDisplayName 参数——写入 channel.display_name。
@@ -101,22 +116,31 @@ export interface GraphPerturbation {
 function ensureChannel(
   G: WorldModel,
   channelId: string,
-  chatType: string = "private",
+  chatType: ChatType,
   chatDisplayName?: string,
 ): void {
   if (G.has(channelId)) {
-    // 已存在 → 仅补充/更新 display_name（如果有新值）
-    if (chatDisplayName) {
-      const current = G.getChannel(channelId).display_name;
-      if (!current || current !== chatDisplayName) {
-        G.updateChannel(channelId, { display_name: chatDisplayName });
+    // Adapter/mapper 是 chat_type 的事实源。旧节点可能由历史 fallback 误建为 private；
+    // 后续真实 Telegram 事件到达时必须修正，否则 prompt 会把群聊渲染成私聊。
+    const current = G.getChannel(channelId);
+    const patch: Mutable<ChannelAttrs> = {};
+    if (current.chat_type !== chatType) {
+      patch.chat_type = chatType;
+      if ((current.tier_contact ?? 150) === 50 && chatType !== "private") {
+        patch.tier_contact = chatType === "channel" ? 500 : 150;
       }
+    }
+    if (chatDisplayName && current.display_name !== chatDisplayName) {
+      patch.display_name = chatDisplayName;
+    }
+    if (Object.keys(patch).length > 0) {
+      G.updateChannel(channelId, patch);
     }
     return;
   }
   G.addChannel(channelId, {
-    chat_type: chatType as ChatType,
-    tier_contact: chatType === "private" ? 50 : 150,
+    chat_type: chatType,
+    tier_contact: chatType === "private" ? 50 : chatType === "channel" ? 500 : 150,
     display_name: chatDisplayName,
   });
   // 自动关联到 agent
@@ -250,7 +274,7 @@ export function applyPerturbation(G: WorldModel, event: GraphPerturbation): numb
           });
 
           // ADR-153: 群组 Hawkes 自激更新 — 仅 directed 消息计入（过滤 noise）
-          const chChatType = chAttrs.chat_type ?? "private";
+          const chChatType = chAttrs.chat_type;
           if (chChatType === "group" || chChatType === "supergroup") {
             const chHawkesParams = getDefaultParams(chAttrs.tier_contact as DunbarTier, true);
             const oldChHawkes: HawkesState = {
@@ -468,7 +492,6 @@ export function applyPerturbation(G: WorldModel, event: GraphPerturbation): numb
         }
       }
       if (channelId) {
-        ensureChannel(G, channelId);
         if (G.has(channelId)) {
           G.updateChannel(channelId, { last_reaction_ms: nowMs });
           // ADR-79 M1: 频道级自愈
@@ -487,7 +510,7 @@ export function applyPerturbation(G: WorldModel, event: GraphPerturbation): numb
         }
       }
       if (channelId) {
-        ensureChannel(G, channelId);
+        if (!G.has(channelId)) return 0.2;
       }
       return 0.2;
     }

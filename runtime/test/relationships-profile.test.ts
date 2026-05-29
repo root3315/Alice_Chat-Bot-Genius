@@ -205,7 +205,9 @@ describe("relationships.mod — tag_interest (ADR-208)", () => {
         interest: "ai",
       });
     }
-    expect(ctx.state.contactProfiles["contact:telegram:1"]?.crystallizedInterests?.ai).toBeDefined();
+    expect(
+      ctx.state.contactProfiles["contact:telegram:1"]?.crystallizedInterests?.ai,
+    ).toBeDefined();
 
     // 推进时间后强化
     const ctx2 = { ...ctx, nowMs: 2000000, tick: 200 };
@@ -262,7 +264,9 @@ describe("relationships.mod — contactProfile with profile", () => {
 
     // biome-ignore lint/style/noNonNullAssertion: test
     const query = relationshipsMod.queries!.contact_profile;
-    const result = query.impl(ctx as unknown as ModContext, { contactId: "contact:telegram:1" }) as {
+    const result = query.impl(ctx as unknown as ModContext, {
+      contactId: "contact:telegram:1",
+    }) as {
       profile: ContactProfile;
       tier: number;
       trustLabel: string;
@@ -281,7 +285,9 @@ describe("relationships.mod — contactProfile with profile", () => {
 
     // biome-ignore lint/style/noNonNullAssertion: test
     const query = relationshipsMod.queries!.contact_profile;
-    const result = query.impl(ctx as unknown as ModContext, { contactId: "contact:telegram:1" }) as {
+    const result = query.impl(ctx as unknown as ModContext, {
+      contactId: "contact:telegram:1",
+    }) as {
       profile: ContactProfile | null;
     };
 
@@ -539,7 +545,11 @@ describe("relationships.mod — tier-based tone guidance", () => {
 
   it("bot 联系人不注入语气指导", () => {
     const ctx = makeCtx({ targetNodeId: "contact:telegram:9001" });
-    ctx.graph.addContact("contact:telegram:9001", { tier: 500, display_name: "BotHelper", is_bot: true });
+    ctx.graph.addContact("contact:telegram:9001", {
+      tier: 500,
+      display_name: "BotHelper",
+      is_bot: true,
+    });
 
     const items = relationshipsMod.contribute?.(ctx as unknown as ModContext) ?? [];
     const content = JSON.stringify(items);

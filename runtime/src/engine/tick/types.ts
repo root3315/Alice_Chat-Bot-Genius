@@ -12,6 +12,7 @@
 
 // Re-export sandbox types for tick pipeline consumers
 import type { ScriptExecutionResult } from "../../core/script-execution.js";
+import type { Afterward } from "../../llm/tools.js";
 
 export type { ScriptExecutionResult } from "../../core/script-execution.js";
 
@@ -230,12 +231,13 @@ export interface Blackboard {
 
 /** host 在同一 tick 内立即续轮的原因。 */
 export type IntraTickContinuationReason = "local_observation_followup" | "error_recovery" | "none";
+export type ActualContinuationReason = Exclude<IntraTickContinuationReason, "none">;
 
 /** ADR-235 + ADR-247: tick 级可观测性元数据。 */
 export interface TickTcMeta {
   toolCallCount: number;
   budgetExhausted: boolean;
-  afterward: string;
+  afterward: Afterward;
   /** tick 入口选中的 endpoint/provider 名，只用于传输和熔断诊断。 */
   provider?: string;
   /** tick 入口选中的稳定模型 ID；模型轮换和质量诊断以此字段为准。 */
@@ -246,7 +248,7 @@ export interface TickTcMeta {
    * host 在同一 tick 内触发的续轮原因序列。
    * 只记录真正发生的续轮，不记录 "none"。
    */
-  hostContinuationTrace?: IntraTickContinuationReason[];
+  hostContinuationTrace?: ActualContinuationReason[];
 }
 
 /** tick 循环退出原因。 */

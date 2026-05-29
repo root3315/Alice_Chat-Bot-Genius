@@ -345,7 +345,9 @@ describe("applyVisibilityFilter — 群聊", () => {
   it("group-dynamics-* keys 放行（天然 scoped）", () => {
     const G = buildTestGraph();
     const audience = groupAudience();
-    const items = [makeSection("group-dynamics-channel:telegram:-1009900000002", "活跃发言者: 张三, 李四")];
+    const items = [
+      makeSection("group-dynamics-channel:telegram:-1009900000002", "活跃发言者: 张三, 李四"),
+    ];
     const filtered = applyVisibilityFilter(items, audience, G);
     expect(filtered).toHaveLength(1);
   });
@@ -552,12 +554,16 @@ describe("开盒防护 — 集成场景", () => {
 describe("resolveDisplayName", () => {
   it("已是 contact:xxx 格式且存在 → 直接返回", () => {
     const G = buildTestGraph();
-    expect(resolveDisplayName(G, "contact:telegram:1000000001")).toBe("contact:telegram:1000000001");
+    expect(resolveDisplayName(G, "contact:telegram:1000000001")).toBe(
+      "contact:telegram:1000000001",
+    );
   });
 
   it("已是 channel:xxx 格式且存在 → 直接返回", () => {
     const G = buildTestGraph();
-    expect(resolveDisplayName(G, "channel:telegram:-1009900000002")).toBe("channel:telegram:-1009900000002");
+    expect(resolveDisplayName(G, "channel:telegram:-1009900000002")).toBe(
+      "channel:telegram:-1009900000002",
+    );
   });
 
   it("nodeId 格式但不存在 → null", () => {

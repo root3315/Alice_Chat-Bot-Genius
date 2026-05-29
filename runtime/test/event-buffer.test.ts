@@ -3,14 +3,22 @@
  */
 import { describe, expect, it } from "vitest";
 import { EventBuffer } from "../src/telegram/events.js";
-import type { GraphPerturbation } from "../src/telegram/mapper.js";
+import type { GraphNonMessagePerturbation, GraphPerturbation } from "../src/telegram/mapper.js";
 
 function makeEvent(
   tick: number,
   type: GraphPerturbation["type"] = "new_message",
   isDirected = false,
 ): GraphPerturbation {
-  return { type, tick, channelId: `channel:${tick}`, isDirected };
+  if (type === "new_message") {
+    return { type, chatType: "group", tick, channelId: `channel:${tick}`, isDirected };
+  }
+  return {
+    type: type as GraphNonMessagePerturbation["type"],
+    tick,
+    channelId: `channel:${tick}`,
+    isDirected,
+  };
 }
 
 describe("EventBuffer", () => {

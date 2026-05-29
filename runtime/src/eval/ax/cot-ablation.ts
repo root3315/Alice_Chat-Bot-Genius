@@ -435,15 +435,6 @@ async function runClassicPairwise(input: {
 }
 
 async function main(): Promise<void> {
-  const scenarios = selectAxScenarios({
-    prefix: values.prefix as string | undefined,
-    tags: selectedTags(),
-    limit: Number.parseInt(values.limit as string, 10) || 6,
-  });
-  if (scenarios.length === 0) {
-    throw new Error("No eval scenarios selected. Use --prefix or --tag less restrictively.");
-  }
-
   const config = loadConfig();
   const provider = getLlmProviderByRoute(config, "eval");
   if (!provider?.apiKey) {
@@ -468,6 +459,16 @@ async function main(): Promise<void> {
     });
     return;
   }
+
+  const scenarios = selectAxScenarios({
+    prefix: values.prefix as string | undefined,
+    tags: selectedTags(),
+    limit: Number.parseInt(values.limit as string, 10) || 6,
+  });
+  if (scenarios.length === 0) {
+    throw new Error("No eval scenarios selected. Use --prefix or --tag less restrictively.");
+  }
+
   const candidateProgram = ax(
     COT_CANDIDATE_SIGNATURE,
   ) as unknown as AxForwardProgram<CotCandidatePrediction>;

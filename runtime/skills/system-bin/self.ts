@@ -9,6 +9,10 @@
  */
 
 import { defineCommand, runMain } from "citty";
+import {
+  type CompletedAction,
+  completedActionControlLine,
+} from "../../src/core/script-execution.ts";
 import { resolveTarget } from "../../src/system/chat-client.ts";
 import {
   enginePostJson,
@@ -29,6 +33,11 @@ function isFailureResult(value: unknown): value is { success: false; error?: unk
     typeof value === "object" &&
     (value as Record<string, unknown>).success === false
   );
+}
+
+function emitCompletedInternalAction(command: string): void {
+  const action: CompletedAction = { kind: "internal", command };
+  console.log(completedActionControlLine(action));
 }
 
 async function prepareCommandBody(command: string, body: Record<string, unknown>) {
@@ -127,6 +136,7 @@ const main = defineCommand({
 
     // ADR-217: 统一端点，Engine 侧区分 query/instruction
     const response = (await enginePostJson(`/cmd/${snakeCmd}`, body)) as {
+      kind?: "query" | "instruction";
       result?: unknown;
     };
 
@@ -137,6 +147,8 @@ const main = defineCommand({
       process.exitCode = 1;
       return;
     }
+
+    if (response.kind === "instruction") emitCompletedInternalAction(snakeCmd);
 
     if (json) {
       console.log(renderBridgeResult(response.result));

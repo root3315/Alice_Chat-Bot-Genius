@@ -168,6 +168,63 @@ describe("ADR-266 action closure diagnostic", () => {
     expect(report.structuredRows).toEqual([]);
   });
 
+  it("uses decoded completed action kinds for direct album-send detection", () => {
+    const actionLogId = insertActionLog({
+      tick: 14,
+      tcAfterward: "waiting_reply",
+    });
+    insertActionResult({
+      actionLogId,
+      tick: 14,
+      completedActionRefsJson: JSON.stringify(["forwarded:from=-1001:to=-1002:msgId=8"]),
+      executionObservationsJson: JSON.stringify([
+        {
+          kind: "query_result",
+          source: "album.search",
+          text: "1 album photo candidate",
+          enablesContinuation: true,
+          payload: { intent: "send_album_photo", candidates: [{ assetId: "photo:cat" }] },
+        },
+      ]),
+    });
+
+    const report = analyzeActionClosure();
+
+    expect(report.structuredRows).toEqual([]);
+  });
+
+  it("does not treat malformed sent-looking refs as album sends", () => {
+    const actionLogId = insertActionLog({
+      tick: 15,
+      tcAfterward: "waiting_reply",
+    });
+    insertActionResult({
+      actionLogId,
+      tick: 15,
+      completedActionRefsJson: JSON.stringify(["sent:chatId=-1001"]),
+      executionObservationsJson: JSON.stringify([
+        {
+          kind: "query_result",
+          source: "album.search",
+          text: "1 album photo candidate",
+          enablesContinuation: true,
+          payload: { intent: "send_album_photo", candidates: [{ assetId: "photo:cat" }] },
+        },
+      ]),
+    });
+
+    const report = analyzeActionClosure();
+
+    expect(report.structuredRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          classification: "album_search_candidates_without_album_send",
+          completedActionKind: "other",
+        }),
+      ]),
+    );
+  });
+
   it("keeps command-log-only rows in legacy suspicion instead of structured facts", () => {
     insertActionLog({
       tick: 13,

@@ -5,7 +5,8 @@
  * Infinity 序列化、注解持久化。
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeDb, initDb } from "../src/db/connection.js";
+import { closeDb, getDb, initDb } from "../src/db/connection.js";
+import { canonicalEvents } from "../src/db/schema.js";
 import { flushGraph, loadGraphFromDb } from "../src/db/snapshot.js";
 import { WorldModel } from "../src/graph/world-model.js";
 
@@ -55,7 +56,7 @@ describe("Graph Write-Back Cache (ADR-33 Phase 2)", () => {
     G.tick = 10;
     G.addContact("a");
     G.addContact("b");
-    G.addChannel("ch");
+    G.addChannel("ch", { chat_type: "private" });
     G.addRelation("a", "friend", "b");
     G.addRelation("a", "monitors", "ch");
     G.addRelation("b", "joined", "ch");
@@ -185,6 +186,38 @@ describe("Graph Write-Back Cache (ADR-33 Phase 2)", () => {
     expect(G2.isDirty()).toBe(false);
     expect(G2.getDirtyNodes().size).toBe(0);
     expect(G2.needsEdgeRebuild()).toBe(false);
+  });
+
+  it("loadGraphFromDb 用 canonical message 修正历史误标的 Telegram 群类型", () => {
+    const G = new WorldModel();
+    G.tick = 10;
+    G.addChannel("channel:telegram:-1003892656176", {
+      chat_type: "private",
+      tier_contact: 50,
+      display_name: "在花小茶馆",
+    });
+    flushGraph(G);
+
+    getDb()
+      .insert(canonicalEvents)
+      .values({
+        kind: "message",
+        tick: 11,
+        channelId: "channel:telegram:-1003892656176",
+        directed: false,
+        payloadJson: JSON.stringify({
+          kind: "message",
+          channelId: "channel:telegram:-1003892656176",
+          chatType: "supergroup",
+        }),
+      })
+      .run();
+
+    const G2 = mustLoad();
+    const channel = G2.getChannel("channel:telegram:-1003892656176");
+    expect(channel.chat_type).toBe("supergroup");
+    expect(channel.tier_contact).toBe(150);
+    expect(G2.isDirty()).toBe(false);
   });
 
   // -- conversation 节点（ADR-26）--------------------------------------------

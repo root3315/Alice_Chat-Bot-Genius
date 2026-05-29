@@ -82,12 +82,12 @@ export function renderTurnEntry(entry: TurnResponseEntry): string {
     return `tool:${entry.name} ok=${entry.ok}\n${entry.output}`;
   }
   if (entry.kind === "host_restatement") {
-    const observations = entry.observations.length > 0
-      ? ` observations=${JSON.stringify(entry.observations)}`
-      : "";
-    const completed = entry.completedActions.length > 0
-      ? ` completed=${JSON.stringify(entry.completedActions)}`
-      : "";
+    const observations =
+      entry.observations.length > 0 ? ` observations=${JSON.stringify(entry.observations)}` : "";
+    const completed =
+      entry.completedActions.length > 0
+        ? ` completed=${JSON.stringify(entry.completedActions)}`
+        : "";
     const errors = entry.errors.length > 0 ? ` errors=${JSON.stringify(entry.errors)}` : "";
     return `system:host ${entry.summary}${observations}${completed}${errors}`;
   }

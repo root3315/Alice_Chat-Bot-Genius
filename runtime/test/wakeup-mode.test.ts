@@ -244,6 +244,7 @@ describe("ADR-190: Wakeup Mode", () => {
     // 注入 directed 消息
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:friend",
       isDirected: true,
       tick: 1,

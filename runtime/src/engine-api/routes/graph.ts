@@ -16,8 +16,9 @@ const ENTITY_PATTERN = /^(?:self|(?:contact|channel):[a-z][a-z0-9_-]*:.+)$/u;
 
 /** 将 URL 中的 entity 段解析为 graph nodeId。格式不合法返回 null。 */
 function resolveEntityId(entity: string): string | null {
-  if (!ENTITY_PATTERN.test(entity)) return null;
-  return entity;
+  const decoded = decodeURIComponent(entity);
+  if (!ENTITY_PATTERN.test(decoded)) return null;
+  return decoded;
 }
 
 /** Body 大小上限（1 MB）——防止恶意/异常客户端 OOM。 */

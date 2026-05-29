@@ -156,6 +156,7 @@ describe("IAUS 集成", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:good",
       isDirected: true,
       tick: 1,
@@ -180,6 +181,7 @@ describe("IAUS 集成", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:good",
       isDirected: true,
       tick: 1,
@@ -200,6 +202,7 @@ describe("沉默记录 (silence_log)", () => {
     const state = buildVmaxState({ rateCap: 0 }); // cap=0 → 任何行动都超限
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:good",
       isDirected: false,
       tick: 1,
@@ -226,6 +229,7 @@ describe("沉默记录 (silence_log)", () => {
     state.G.setDynamic("channel:good", "pending_directed", 0); // 移除 directed bypass
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:good",
       isDirected: false,
       tick: 1,

@@ -649,7 +649,8 @@ async function main() {
         cacheOutgoingMsg(graphId, sentMsgId);
         dispatcher.dispatch("SEND_MESSAGE", {
           chatId: graphId,
-          text: deliveredAs === "text" ? text : `(voice: ${text.slice(0, 50)})`,
+          text,
+          mediaType: deliveredAs === "voice" ? "voice" : undefined,
         });
         dispatcher.dispatch("DECLARE_ACTION", { target: graphId });
       }
@@ -821,6 +822,7 @@ async function main() {
           model: provider(model),
           prompt: "ping",
           maxOutputTokens: 1,
+          maxRetries: 0,
           abortSignal: AbortSignal.timeout(S1_TIMEOUT_MS),
         });
         log.info("LLM connectivity check passed", { attempt });

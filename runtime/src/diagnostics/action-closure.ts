@@ -7,7 +7,12 @@
  * @see docs/adr/266-tool-result-action-closure/README.md §Wave 4
  */
 
-import { type ExecutionObservation, isExecutionObservation } from "../core/script-execution.js";
+import {
+  type CompletedAction,
+  completedActionFacts,
+  type ExecutionObservation,
+  isExecutionObservation,
+} from "../core/script-execution.js";
 import { getSqlite } from "../db/connection.js";
 
 export interface ActionClosureOptions {
@@ -92,15 +97,6 @@ interface LegacySqlRow {
   tcCommandLog: string | null;
   reasoning: string | null;
 }
-
-const SOCIAL_ACTION_PREFIXES = [
-  "sent:",
-  "voice:",
-  "sticker:",
-  "react:",
-  "sent-file:",
-  "forwarded:",
-];
 
 export function analyzeActionClosure(options: ActionClosureOptions = {}): ActionClosureReport {
   const limit = Math.max(1, options.limit ?? 20);
@@ -202,8 +198,8 @@ function buildStructuredRows(limit: number): ActionClosureStructuredRow[] {
     const observations = parseObservations(row.executionObservationsJson);
     if (observations.length === 0) continue;
 
-    const completedRefs = parseStringArray(row.completedActionRefsJson);
-    const completedActionKind = classifyCompletedActionKind(completedRefs);
+    const completedActions = decodeCompletedActionRefs(row.completedActionRefsJson);
+    const completedActionKind = classifyCompletedActionKind(completedActions);
     const hasSameTickFollowupSend = hasSameTickLaterSend(row.tick, row.actionLogId);
     const hasCompletedSocialAction = completedActionKind !== "empty" || hasSameTickFollowupSend;
     const trace = parseStringArray(row.tcHostContinuationTrace);
@@ -245,7 +241,7 @@ function buildStructuredRows(limit: number): ActionClosureStructuredRow[] {
       if (
         observation.source === "album.search" &&
         candidateAssetIds.length > 0 &&
-        !hasAlbumSend(completedRefs) &&
+        !hasAlbumSend(completedActions) &&
         !hasSameTickFollowupSend &&
         !hasLocalContinuation
       ) {
@@ -358,17 +354,37 @@ function extractCandidateAssetIds(observation: ExecutionObservation): string[] {
     .filter((assetId): assetId is string => assetId != null);
 }
 
-function classifyCompletedActionKind(completedRefs: readonly string[]): string {
-  if (completedRefs.length === 0) return "empty";
-  const socialRef = completedRefs.find((ref) =>
-    SOCIAL_ACTION_PREFIXES.some((prefix) => ref.startsWith(prefix)),
-  );
-  if (!socialRef) return "other";
-  return socialRef.slice(0, socialRef.indexOf(":"));
+function decodeCompletedActionRefs(raw: string | null): CompletedAction[] {
+  return completedActionFacts({ completedActions: parseStringArray(raw) });
 }
 
-function hasAlbumSend(completedRefs: readonly string[]): boolean {
-  return completedRefs.some((ref) => ref.startsWith("sent:") || ref.startsWith("forwarded:"));
+function classifyCompletedActionKind(completedActions: readonly CompletedAction[]): string {
+  if (completedActions.length === 0) return "empty";
+  const classified = completedActions
+    .map((action) => completedActionKindLabel(action))
+    .find((kind) => kind !== "other");
+  return classified ?? "other";
+}
+
+function completedActionKindLabel(action: CompletedAction): string {
+  switch (action.kind) {
+    case "sent":
+    case "voice":
+    case "sticker":
+    case "react":
+    case "sent-file":
+    case "forwarded":
+    case "downloaded":
+      return action.kind;
+    case "unknown":
+    case "malformed":
+      return "other";
+  }
+  return "other";
+}
+
+function hasAlbumSend(completedActions: readonly CompletedAction[]): boolean {
+  return completedActions.some((action) => action.kind === "sent" || action.kind === "forwarded");
 }
 
 function hasSameTickLaterSend(tick: number, actionLogId: number | null): boolean {
@@ -383,7 +399,7 @@ function hasSameTickLaterSend(tick: number, actionLogId: number | null): boolean
     )
     .all(tick, actionLogId, actionLogId) as Array<{ completedActionRefsJson: string }>;
 
-  return rows.some((row) => hasAlbumSend(parseStringArray(row.completedActionRefsJson)));
+  return rows.some((row) => hasAlbumSend(decodeCompletedActionRefs(row.completedActionRefsJson)));
 }
 
 function commandHintFromLog(commandLog: string): string | null {

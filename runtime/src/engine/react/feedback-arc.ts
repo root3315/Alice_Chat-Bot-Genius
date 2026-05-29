@@ -20,7 +20,13 @@ import type {
   ScriptExecutionErrorCode,
   ScriptExecutionResult,
 } from "../../core/script-execution.js";
-import { hasCompletedSend } from "../../core/script-execution.js";
+import {
+  completedActionFacts,
+  countCompletedSentActions,
+  extractFirstExternalMessageId,
+  hasCompletedSend,
+  hasInternalCompletedAction,
+} from "../../core/script-execution.js";
 import { getDb } from "../../db/connection.js";
 import { writeDecisionTrace } from "../../db/decision-trace.js";
 import { writeFocusTransitionShadows } from "../../db/focus-transition-shadow.js";
@@ -107,15 +113,6 @@ function extractFirstSentMessageText(_result: ScriptExecutionResult): string | n
   return null;
 }
 
-function extractFirstExternalMessageId(result: ScriptExecutionResult): string | null {
-  const sent = result.completedActions.find((action) => action.startsWith("sent:"));
-  if (!sent) return null;
-  const msgId = /(?:^|:)msgId=([^:]+)/.exec(sent)?.[1];
-  const chatId = /(?:^|:)chatId=([^:]+)/.exec(sent)?.[1];
-  if (chatId && msgId) return `${chatId}:${msgId}`;
-  return msgId ?? sent;
-}
-
 function isCommandMisuseError(result: ScriptExecutionResult): boolean {
   return result.errorCodes.some(
     (code) =>
@@ -134,6 +131,7 @@ type ExecutionOutcomeKind =
   | "command_misuse"
   | "telegram_failed"
   | "script_failed"
+  | "internal_success"
   | "observe_success";
 
 interface ExecutionOutcome {
@@ -162,21 +160,14 @@ function classifyExecutionOutcome(
   messageSent: boolean,
   failureKind?: EngagementMetrics["failureKind"],
 ): ExecutionOutcome {
+  const internalCompleted = hasInternalCompletedAction(result);
+
   if (messageSent) {
     return {
       kind: "message_sent",
       actionType: "message",
       success: true,
       finalDecision: "execute",
-    };
-  }
-
-  if (result.silenceReason && result.errors.length === 0) {
-    return {
-      kind: "silence",
-      actionType: "silence",
-      success: true,
-      finalDecision: "stop",
     };
   }
 
@@ -195,6 +186,24 @@ function classifyExecutionOutcome(
       actionType: "telegram_failed",
       success: false,
       finalDecision: "fail",
+    };
+  }
+
+  if (result.silenceReason) {
+    return {
+      kind: "silence",
+      actionType: "silence",
+      success: true,
+      finalDecision: "stop",
+    };
+  }
+
+  if (internalCompleted) {
+    return {
+      kind: "internal_success",
+      actionType: "internal",
+      success: true,
+      finalDecision: "execute",
     };
   }
 
@@ -459,7 +468,7 @@ export function updateReachability(
 export function computeEAProxy(result: ScriptExecutionResult): number {
   // shell-native: dispatch 动作不在 completedActions 中，observationValue = 0
   const observationValue = 0;
-  const actionCount = result.completedActions.filter((a) => a.startsWith("sent:")).length;
+  const actionCount = countCompletedSentActions(result);
   return observationValue / Math.max(1, actionCount);
 }
 
@@ -559,9 +568,9 @@ export function processResult(
   // ADR-95 W1+W2+W4: 沉默冷却 + 沉默即感知 + directed 信号衰减
   // @see docs/adr/95-prompt-log-behavioral-audit.md §5
   // ADR-101: 防御性守卫——这些属性是 channel 专属，非 channel 节点不应写入
-  // D-I: 脚本错误 ≠ 沉默——脚本编译/运行时错误不算 "主动选择沉默"
-  const isSilence =
-    !messageSent && !!executionResult.silenceReason && executionResult.errors.length === 0;
+  // D-I: 沉默由最终 outcome 判定；历史错误只保留审计，不污染 action_type。
+  // 带错误的恢复沉默不消耗 pending_directed，避免把未完成义务悄悄吃掉。
+  const isSilence = outcome.kind === "silence";
   if (item.target && ctx.G.has(item.target) && ctx.G.getNodeType(item.target) === "channel") {
     if (messageSent) {
       // ADR-158: 出站反馈弧补全。
@@ -617,7 +626,7 @@ export function processResult(
       }
 
       const pd = Number(ctx.G.getChannel(item.target).pending_directed ?? 0);
-      if (pd > 0) silPatch.pending_directed = pd - 1;
+      if (pd > 0 && executionResult.errors.length === 0) silPatch.pending_directed = pd - 1;
 
       ctx.G.updateChannel(item.target, silPatch);
     } else if (outcome.kind === "command_misuse") {
@@ -626,6 +635,11 @@ export function processResult(
         errorCount,
         scriptErrors: executionResult.errors.length,
       });
+    } else if (outcome.success) {
+      const pd = Number(ctx.G.getChannel(item.target).pending_directed ?? 0);
+      if (pd > 0) {
+        ctx.G.updateChannel(item.target, { pending_directed: pd - 1 });
+      }
     } else if (!success) {
       // 脚本错误（目标不可达、500 等）≈ 失败的行动尝试。
       // 压力释放等同于沉默——Alice 尝试了但没送达，不应无限重试。
@@ -852,12 +866,13 @@ export function processResult(
   // shell-native 下 dispatch 动作不在 completedActions 中，stateChanges 从 completedActions 推导
   try {
     const stateChanges: string[] = [];
-    for (const ca of executionResult.completedActions) {
-      if (ca.startsWith("sent:")) stateChanges.push("sent a message");
-      else if (ca.startsWith("sticker:")) stateChanges.push("sent a sticker");
-      else if (ca.startsWith("forwarded:")) stateChanges.push("forwarded a message");
-      else if (ca.startsWith("downloaded:")) stateChanges.push("downloaded media");
-      else if (ca.startsWith("sent-file:")) stateChanges.push("sent a file");
+    for (const action of completedActionFacts(executionResult)) {
+      if (action.kind === "sent" || action.kind === "voice") stateChanges.push("sent a message");
+      else if (action.kind === "sticker") stateChanges.push("sent a sticker");
+      else if (action.kind === "forwarded") stateChanges.push("forwarded a message");
+      else if (action.kind === "sent-file") stateChanges.push("sent a file");
+      else if (action.kind === "downloaded") stateChanges.push("downloaded media");
+      else if (action.kind === "internal") stateChanges.push(`updated ${action.command}`);
     }
     if (stateChanges.length === 0 && messageSent) stateChanges.push("sent a message");
     const autoWbEntries = Object.entries(autoWriteback).map(([k, v]) => `auto-${k}:${v}`);

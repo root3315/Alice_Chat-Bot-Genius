@@ -243,7 +243,7 @@ export const AxCotClassicPairwiseReportSchema = z.object({
     caseIds: z.array(z.string()).min(1),
     runs: z.number().int().positive(),
   }),
-  variants: z.array(AxCotVariantSchema).min(2),
+  variants: z.array(AxCotVariantSchema).length(3),
   summary: z.object({
     wins: z.record(z.number().int().nonnegative()),
     averageScores: z.record(z.number()),

@@ -10,6 +10,7 @@
 import { listSocialEvents } from "../db/social-case.js";
 import { resolveContactAndChannel } from "../graph/constants.js";
 import { safeDisplayName } from "../graph/display.js";
+import { readDisplayName, readTitle } from "../graph/dynamic-props.js";
 import type { WorldModel } from "../graph/world-model.js";
 import { ChatTarget } from "../prompt/types.js";
 import { type SocialCaseWritebackEntry, socialCaseWritebackContextVars } from "./context.js";
@@ -44,10 +45,10 @@ function addKnownEntityAliases(G: WorldModel, aliases: Set<string>, nodeId: stri
   aliases.add(nodeId);
   if (!G.has(nodeId)) return;
   aliases.add(safeDisplayName(G, nodeId));
-  const displayName = G.getDynamic(nodeId, "display_name");
-  if (displayName) aliases.add(String(displayName));
-  const title = G.getDynamic(nodeId, "title");
-  if (title) aliases.add(String(title));
+  const displayName = readDisplayName(G, nodeId);
+  if (displayName) aliases.add(displayName);
+  const title = readTitle(G, nodeId);
+  if (title) aliases.add(title);
 }
 
 function targetAliases(G: WorldModel, target: string): Set<string> {

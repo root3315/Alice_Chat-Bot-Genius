@@ -9,7 +9,11 @@ import {
   appraiseLonelySilence,
   appraiseWarmReturnRepair,
 } from "../src/emotion/appraisal.js";
-import { readEmotionEpisodes, readEmotionState } from "../src/emotion/graph.js";
+import {
+  readEmotionControlPatch,
+  readEmotionEpisodes,
+  readEmotionState,
+} from "../src/emotion/graph.js";
 import { listEmotionRepairEventsForReplay } from "../src/emotion/repair-store.js";
 import { WorldModel } from "../src/graph/world-model.js";
 import { observerMod } from "../src/mods/observer.mod.js";
@@ -299,5 +303,21 @@ describe("ADR-268 structured emotion appraisal", () => {
     });
 
     expect(readEmotionState(graph, NOW + 1000).dominant?.kind).toBe("annoyed");
+  });
+
+  it("provider failures do not create subjective tiredness or short-reply pressure", () => {
+    const graph = makeGraph();
+
+    appraiseActionFailureEmotion(graph, {
+      targetId: GROUP,
+      errorCodes: ["provider_unavailable"],
+      failureKind: "provider_unavailable",
+      nowMs: NOW,
+    });
+
+    const state = readEmotionState(graph, NOW);
+    const patch = readEmotionControlPatch(graph, NOW);
+    expect(state.dominant).toBeNull();
+    expect(patch.styleBudget.preferShort).toBe(false);
   });
 });

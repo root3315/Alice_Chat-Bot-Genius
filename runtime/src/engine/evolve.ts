@@ -112,7 +112,6 @@ import {
 import {
   classifyChatType,
   countActionsByClass,
-  gateActiveCooling,
   gateAPIFloor,
   gateClosingConversation,
   gateConversationAware,
@@ -128,9 +127,10 @@ import {
   type CandidateContext,
   type IAUSCandidate,
   type IAUSConfig,
+  type IAUSFilterStats,
   type IAUSScoredCandidate,
   type RhythmTimingProfile,
-  scoreAllCandidates,
+  scoreAllCandidatesDetailed,
 } from "./iaus-scorer.js";
 import { perceiveTick } from "./perceive.js";
 import { classifySilence, computeVoINull } from "./silence.js";
@@ -153,7 +153,7 @@ function recordSilence(
   voice: string,
   target: string | null,
   reason: string,
-  values: { netValue?: number; deltaP?: number; socialCost?: number; apiValue?: number },
+  values: SilenceValues,
   silenceLevel?: SilenceLevel,
 ): void {
   try {
@@ -490,6 +490,42 @@ function silenceValuesFromCandidate(
     deltaP: candidate.deltaP,
     socialCost: candidate.socialCost,
     apiValue,
+  };
+}
+
+function topIausFilterReason(stats: IAUSFilterStats | null | undefined): {
+  reason: string;
+  count: number;
+} | null {
+  if (!stats) return null;
+  let top: { reason: string; count: number } | null = null;
+  for (const [reason, count] of Object.entries(stats.filtered)) {
+    const n = Number(count ?? 0);
+    if (n <= 0) continue;
+    if (!top || n > top.count) top = { reason, count: n };
+  }
+  return top;
+}
+
+function emptyCandidatePoolReason(stats: IAUSFilterStats | null | undefined): string {
+  const top = topIausFilterReason(stats);
+  return top ? `candidate_pool_empty:${top.reason}` : "all_candidates_negative";
+}
+
+function emptyCandidatePoolValues(
+  apiValue: number,
+  stats: IAUSFilterStats | null | undefined,
+): SilenceValues {
+  const top = topIausFilterReason(stats);
+  return {
+    apiValue,
+    ...(stats
+      ? {
+          iausFilterTotalChannels: stats.totalChannels,
+          iausFilterEligibleTargets: stats.eligibleTargets,
+        }
+      : {}),
+    ...(top ? { iausFilterTopReasonCount: top.count } : {}),
   };
 }
 
@@ -1015,8 +1051,7 @@ function computeTickPlan(
     const cId = chatIdToContactId(target);
     return cId && G.has(cId) ? (G.getContact(cId).tier as number | null) : null;
   })();
-  const targetChatTypeForFacet =
-    target && G.has(target) ? (G.getChannel(target).chat_type ?? "private") : "private";
+  const targetChatTypeForFacet = target && G.has(target) ? G.getChannel(target).chat_type : null;
   // ADR-206: channel target 回退 isGroup=false（private 模式）。
   // channel 被压力隔离压到极低 IAUS 评分，此路径几乎不可达。
   const isGroupForFacet =
@@ -1120,7 +1155,7 @@ function computeTickPlan(
     getHawkesDiscount: (target: string) => {
       if (!G.has(target)) return 1.0;
       const chAttrs = G.getChannel(target);
-      const chatType = chAttrs.chat_type ?? "private";
+      const chatType = chAttrs.chat_type;
       const isGroupChat = ChatTarget.isGroupChat(chatType);
 
       // 私聊：contact Hawkes + Phase 2 在线校准 + 昼夜调制
@@ -1229,7 +1264,15 @@ function computeTickPlan(
     classActionCounts: classCounts,
   };
 
-  let iausResult = scoreAllCandidates(tensionMap, G, tick, state.recentActions, iausConfig);
+  let detailedIaus = scoreAllCandidatesDetailed(
+    tensionMap,
+    G,
+    tick,
+    state.recentActions,
+    iausConfig,
+  );
+  let iausResult = detailedIaus.result;
+  let lastIausFilterStats: IAUSFilterStats | undefined = detailedIaus.filterStats;
   let lastIausScored: IAUSScoredCandidate[] | undefined = iausResult?.scored;
   let perTargetRetryCount = 0;
   let postWakeupRecoverySuppression: {
@@ -1264,10 +1307,12 @@ function computeTickPlan(
           excluded: best.target,
           retry: perTargetRetryCount,
         });
-        iausResult = scoreAllCandidates(tensionMap, G, tick, state.recentActions, {
+        detailedIaus = scoreAllCandidatesDetailed(tensionMap, G, tick, state.recentActions, {
           ...iausConfig,
           excludeTargets: excludedTargets,
         });
+        iausResult = detailedIaus.result;
+        lastIausFilterStats = detailedIaus.filterStats;
         lastIausScored = iausResult?.scored ?? lastIausScored;
         continue;
       }
@@ -1415,37 +1460,7 @@ function computeTickPlan(
       };
     }
 
-    // ADR-160 Fix C: chat-type-aware active cooling。
-    // ADR-113 F15: 复用 classifyChatType + classCounts。
-    // ADR-189: 传入 isBot 区分 bot scope。
-    // @see docs/adr/158-outbound-feedback-gap.md §Fix C
-    {
-      const winnerClass = classifyChatType(
-        best.target && G.has(best.target) ? G.getChannel(best.target).chat_type : undefined,
-        best.target ? resolveIsBot(G, best.target) : undefined,
-      );
-      const coolVerdict = gateActiveCooling(
-        classCounts[winnerClass],
-        config.socialCost.lambdaC,
-        iausResult.winnerBypassGates,
-        pressures.API,
-      );
-      if (coolVerdict.type === "silent") {
-        const silLvl = classifySilence(pressures.API, config.actionRateFloor, bestV, 0, true);
-        return {
-          type: "silent",
-          pressures,
-          voice: best.action,
-          target: best.target ?? null,
-          reason: coolVerdict.reason,
-          level: silLvl,
-          values: silenceValuesFromCandidate(best, bestV, pressures.API, coolVerdict.values ?? {}),
-          focalEntities: best.focalEntities,
-          vmaxScored: iausResult.scored,
-        };
-      }
-    }
-
+    // ADR-274 W2: normal cadence must not randomly kill a winner after IAUS selection.
     // ADR-189: per-target rate limit 已内化到 IAUS per-candidate pre-filter。
 
     break; // 所有门控通过
@@ -1477,17 +1492,10 @@ function computeTickPlan(
           bestAction = "diligence"; // 义务驱动默认 diligence
           bestFocalEntities = [chId];
         }
-        // 隐式对话延续（低于 directed 但非零）
-        if (bestObligation < 0.01 && isConversationContinuation(G, chId, nowMs)) {
-          bestTarget = chId;
-          bestAction = "diligence";
-          bestFocalEntities = [chId];
-          bestObligation = 0.01;
-        }
       }
       // ADR-189: consecutive_outgoing 硬上限——directedCandidate 不再绕过连发 cap
-      // ADR-189 蟑螂审计 Fix 1: 强义务（effectiveObligation > θ_bypassGates）跳过 outgoing cap，
-      // 弱义务（conversation continuation，bestObligation ≈ 0.01）仍受 cap 约束。
+      // ADR-189 蟑螂审计 Fix 1: 强义务（effectiveObligation > θ_bypassGates）跳过 outgoing cap。
+      // 普通 conversation continuation 不再进入 directed_override；它只能走 IAUS 主路径。
       // @see docs/adr/189-gate-iaus-unification.md §蟑螂审计
       const isStrongObligation = bestObligation > OBLIGATION_THRESHOLDS.bypassGates;
       if (bestTarget && G.has(bestTarget) && !isStrongObligation) {
@@ -1616,15 +1624,18 @@ function computeTickPlan(
     // 所有候选被过滤 — 沉默
     const actSilences = target && G.has(target) ? effectiveActSilences(G, target, nowMs) : 0;
     const silLvl = classifySilence(pressures.API, config.actionRateFloor, 0, 0, false);
+    const emptyReason =
+      actSilences >= SILENCE_COOLDOWN_THRESHOLD
+        ? "silence_cooldown"
+        : emptyCandidatePoolReason(lastIausFilterStats);
     return {
       type: "silent",
       pressures,
       voice: action,
       target,
-      reason:
-        actSilences >= SILENCE_COOLDOWN_THRESHOLD ? "silence_cooldown" : "all_candidates_negative",
+      reason: emptyReason,
       level: silLvl,
-      values: { apiValue: pressures.API },
+      values: emptyCandidatePoolValues(pressures.API, lastIausFilterStats),
       focalEntities: focal.entities,
       vmaxScored: lastIausScored,
     };

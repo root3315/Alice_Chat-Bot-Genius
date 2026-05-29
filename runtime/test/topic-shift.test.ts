@@ -142,6 +142,7 @@ describe("B2: 话题突变场景", () => {
     // tick 1: Carol 发了猫照片（非 directed）
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:carol",
       isDirected: false,
       tick: 1,
@@ -156,6 +157,7 @@ describe("B2: 话题突变场景", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:david",
       isDirected: true,
       tick: 2,
@@ -187,6 +189,7 @@ describe("B2: 话题突变场景", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:david",
       isDirected: true,
       tick: 1,
@@ -210,6 +213,7 @@ describe("B2: 话题突变场景", () => {
     // tick 1: 处理 Carol（可能入队也可能不入队）
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:carol",
       isDirected: false,
       tick: 1,
@@ -225,6 +229,7 @@ describe("B2: 话题突变场景", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:david",
       isDirected: true,
       tick: 2,

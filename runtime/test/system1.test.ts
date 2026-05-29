@@ -42,8 +42,8 @@ describe("System 1: Caution skip", () => {
 
   it("所有实体 risk=none → skip", () => {
     const G = new WorldModel();
-    G.addChannel("ch1", { risk_level: "none" });
-    G.addChannel("ch2", { risk_level: "low" });
+    G.addChannel("ch1", { chat_type: "private", risk_level: "none" });
+    G.addChannel("ch2", { chat_type: "private", risk_level: "low" });
     const focalSets = makeFocalSets({
       caution: { entities: ["ch1", "ch2"], primaryTarget: "ch1", meanRelevance: 0.1 },
     });
@@ -54,7 +54,7 @@ describe("System 1: Caution skip", () => {
 
   it("有 risk=medium 实体 → 升级 System 2", () => {
     const G = new WorldModel();
-    G.addChannel("ch1", { risk_level: "medium" });
+    G.addChannel("ch1", { chat_type: "private", risk_level: "medium" });
     const focalSets = makeFocalSets({
       caution: { entities: ["ch1"], primaryTarget: "ch1", meanRelevance: 0.3 },
     });
@@ -64,7 +64,7 @@ describe("System 1: Caution skip", () => {
 
   it("有 risk=high 实体 → 升级 System 2", () => {
     const G = new WorldModel();
-    G.addChannel("ch1", { risk_level: "high" });
+    G.addChannel("ch1", { chat_type: "private", risk_level: "high" });
     const focalSets = makeFocalSets({
       caution: { entities: ["ch1"], primaryTarget: "ch1", meanRelevance: 0.6 },
     });
@@ -74,7 +74,7 @@ describe("System 1: Caution skip", () => {
 
   it("低风险但有 alice_turn 对话 → 升级 System 2", () => {
     const G = new WorldModel();
-    G.addChannel("ch1", { risk_level: "none" });
+    G.addChannel("ch1", { chat_type: "private", risk_level: "none" });
     G.addConversation("conversation:1", {
       channel: "ch1",
       state: "active",
@@ -89,7 +89,7 @@ describe("System 1: Caution skip", () => {
 
   it("低风险 + other_turn 对话 → skip（不需要 Alice 回复）", () => {
     const G = new WorldModel();
-    G.addChannel("ch1", { risk_level: "none" });
+    G.addChannel("ch1", { chat_type: "private", risk_level: "none" });
     G.addConversation("conversation:1", {
       channel: "ch1",
       state: "active",
@@ -106,6 +106,7 @@ describe("System 1: Caution skip", () => {
   it("ADR-268: channel mood_valence no longer upgrades System 1 by itself", () => {
     const G = new WorldModel();
     G.addChannel("ch1", {
+      chat_type: "private",
       risk_level: "none",
       mood_valence: -0.8,
       mood_shift_ms: Date.now() - 1000,
@@ -120,7 +121,7 @@ describe("System 1: Caution skip", () => {
 
   it("cooldown 对话不阻止 skip", () => {
     const G = new WorldModel();
-    G.addChannel("ch1");
+    G.addChannel("ch1", { chat_type: "private" });
     G.addConversation("conversation:1", {
       channel: "ch1",
       state: "cooldown",
@@ -141,7 +142,12 @@ describe("System 1: Diligence digest", () => {
   it("有 unread + 无 directed → digest", () => {
     const G = new WorldModel();
     // participation_ratio > 0: 避免 ADR-116 newcomer floor 干扰（此测试只验证 directed 分支）
-    G.addChannel("ch1", { unread: 5, pending_directed: 0, participation_ratio: 0.1 });
+    G.addChannel("ch1", {
+      chat_type: "private",
+      unread: 5,
+      pending_directed: 0,
+      participation_ratio: 0.1,
+    });
     const focalSets = makeFocalSets({
       diligence: { entities: ["ch1"], primaryTarget: "ch1", meanRelevance: 10 },
     });
@@ -153,7 +159,7 @@ describe("System 1: Diligence digest", () => {
 
   it("有 directed → 升级 System 2", () => {
     const G = new WorldModel();
-    G.addChannel("ch1", { unread: 5, pending_directed: 2 });
+    G.addChannel("ch1", { chat_type: "private", unread: 5, pending_directed: 2 });
     const focalSets = makeFocalSets({
       diligence: { entities: ["ch1"], primaryTarget: "ch1", meanRelevance: 10 },
     });
@@ -163,7 +169,7 @@ describe("System 1: Diligence digest", () => {
 
   it("无 unread → 不处理", () => {
     const G = new WorldModel();
-    G.addChannel("ch1", { unread: 0, pending_directed: 0 });
+    G.addChannel("ch1", { chat_type: "private", unread: 0, pending_directed: 0 });
     const focalSets = makeFocalSets({
       diligence: { entities: ["ch1"], primaryTarget: "ch1", meanRelevance: 5 },
     });
@@ -187,6 +193,7 @@ describe("System 1: ADR-91 bot 消息快速 digest", () => {
   it("bot 消息（非 directed）+ leakProb=1 → 仍然 digest（ADR-91 快速路径）", () => {
     const G = new WorldModel();
     G.addChannel("channel:bot", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       last_sender_is_bot: true,
@@ -205,6 +212,7 @@ describe("System 1: ADR-91 bot 消息快速 digest", () => {
     // last_sender_is_bot 来自 bot。人类义务应被尊重。
     const G = new WorldModel();
     G.addChannel("channel:bot_directed", {
+      chat_type: "group",
       unread: 3,
       pending_directed: 1,
       last_sender_is_bot: true,
@@ -225,6 +233,7 @@ describe("System 1: ADR-91 bot 消息快速 digest", () => {
     // 因此 System 1 的 hasObligation 不触发，控制流到达 bot-digest 分支。
     const G = new WorldModel();
     G.addChannel("channel:bot_only", {
+      chat_type: "group",
       unread: 1,
       pending_directed: 0, // 修复后：bot directed 不递增
       last_sender_is_bot: true,
@@ -244,6 +253,7 @@ describe("System 1: ADR-91 bot 消息快速 digest", () => {
   it("bot 消息（非 directed）+ leakProb=0 → digest", () => {
     const G = new WorldModel();
     G.addChannel("channel:bot", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       last_sender_is_bot: true,
@@ -263,6 +273,7 @@ describe("System 1: G7 participation_ratio 动态频率控制", () => {
   it("participation_ratio > 0.25 → leakProb=0 → 永不泄漏", () => {
     const G = new WorldModel();
     G.addChannel("channel:over", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0.3,
@@ -279,6 +290,7 @@ describe("System 1: G7 participation_ratio 动态频率控制", () => {
   it("participation_ratio < 0.05 → leakProb ×2 → 放大泄漏", () => {
     const G = new WorldModel();
     G.addChannel("channel:under", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0.02,
@@ -301,6 +313,7 @@ describe("System 1: G7 participation_ratio 动态频率控制", () => {
   it("正常 ratio (0.05~0.25) → 正常 leakProb", () => {
     const G = new WorldModel();
     G.addChannel("channel:normal", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0.15,
@@ -327,6 +340,7 @@ describe("System 1: 对话延续信号（隐式回复检测）", () => {
     const tick = 100;
     // ADR-110: CONTINUATION_WINDOW_S = 300 秒
     G.addChannel("channel:cont", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       last_alice_action_ms: Date.now() - 60_000, // 60 秒前发过言，在 300 秒窗口内
@@ -352,6 +366,7 @@ describe("System 1: 对话延续信号（隐式回复检测）", () => {
     // ADR-110: CONTINUATION_WINDOW_S = 300 秒，设置为 600 秒前 → 超出窗口
     // participation_ratio > 0: 已有参与历史，避免 ADR-116 newcomer floor 干扰
     G.addChannel("channel:old", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0.1,
@@ -371,6 +386,7 @@ describe("System 1: 对话延续信号（隐式回复检测）", () => {
     const tick = 100;
     // ADR-110: last_alice_action_ms 在 300 秒窗口内
     G.addChannel("channel:over_cont", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0.3, // 过度参与
@@ -401,6 +417,7 @@ describe("System 1: 对话延续信号（隐式回复检测）", () => {
     const tick = 100;
     // ADR-110: last_alice_action_ms 在 300 秒窗口内
     G.addChannel("channel:very_over", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0.5, // 极度过度参与
@@ -426,6 +443,7 @@ describe("System 1: ADR-116 newcomer leak floor", () => {
   it("participation_ratio=0 → effectiveLeakProb ≥ NEWCOMER_LEAK_FLOOR(0.5)", () => {
     const G = new WorldModel();
     G.addChannel("channel:newcomer", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0, // 从未发言
@@ -452,6 +470,7 @@ describe("System 1: ADR-116 newcomer leak floor", () => {
   it("participation_ratio=0 + random > 0.5 → digest（floor 之上仍有拦截）", () => {
     const G = new WorldModel();
     G.addChannel("channel:newcomer2", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0,
@@ -478,6 +497,7 @@ describe("System 1: ADR-116 newcomer leak floor", () => {
   it("participation_ratio > 0（已参与过）→ newcomer floor 不生效", () => {
     const G = new WorldModel();
     G.addChannel("channel:active", {
+      chat_type: "group",
       unread: 5,
       pending_directed: 0,
       participation_ratio: 0.1, // 已有参与

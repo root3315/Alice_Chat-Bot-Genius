@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   gval,
+  motdCommand,
   parseMsgId,
   reactCommand,
   readCommand,
@@ -752,7 +753,7 @@ describe("tailCommand", () => {
   it("formats messages as numbered list", async () => {
     const responses = new Map([
       [
-        "GET:/chat/456/tail?limit=20",
+        "GET:/chat/channel%3Atelegram%3A456/tail?limit=20",
         {
           messages: [
             {
@@ -799,7 +800,7 @@ describe("tailCommand", () => {
   it("returns rawResult with json flag", async () => {
     const responses = new Map([
       [
-        "GET:/chat/123/tail?limit=10",
+        "GET:/chat/channel%3Atelegram%3A123/tail?limit=10",
         {
           messages: [
             {
@@ -839,7 +840,7 @@ describe("tailCommand", () => {
   });
 
   it("shows (no messages) for empty result", async () => {
-    const responses = new Map([["GET:/chat/123/tail?limit=20", []]]);
+    const responses = new Map([["GET:/chat/channel%3Atelegram%3A123/tail?limit=20", []]]);
     const ctx = makeFakeContext(responses, new FakeOutput());
 
     const result = await tailCommand(ctx, {
@@ -848,6 +849,44 @@ describe("tailCommand", () => {
     });
 
     expect(result.output).toBe("(no messages)");
+  });
+
+  it("reads stable non-Telegram targets without numeric resolver fallback", async () => {
+    const responses = new Map([
+      [
+        "GET:/chat/channel%3Adiscord%3Aguild-1%2Fthread-2/tail?limit=5",
+        {
+          messages: [
+            {
+              id: "m-1",
+              sender: "Niko",
+              senderId: "contact:discord:u-1",
+              text: "cross-platform read",
+              mediaType: null,
+              outgoing: false,
+              directed: false,
+              timestamp: "2026-03-11T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    ]);
+    const ctx = makeFakeContext(responses, new FakeOutput(), async () => {
+      throw new Error("numeric resolver should not be called");
+    });
+
+    const result = await tailCommand(ctx, {
+      in: "channel:discord:guild-1/thread-2",
+      count: "5",
+    });
+
+    expect(result.output).toContain("[tail channel:discord:guild-1/thread-2]");
+    expect(result.output).toContain('Niko: "cross-platform read"');
+    expect(result.observation).toMatchObject({
+      source: "irc.tail",
+      targetChatId: "channel:discord:guild-1/thread-2",
+      payload: { count: 5, messageCount: 1 },
+    });
   });
 });
 
@@ -877,12 +916,12 @@ describe("threadsCommand", () => {
 describe("whoisCommand", () => {
   it("returns chat info when no target provided", async () => {
     const responses = new Map([
-      ["GET:/graph/channel:123/display_name", { value: "Test Chat" }],
-      ["GET:/graph/channel:123/chat_type", { value: "supergroup" }],
-      ["GET:/graph/channel:123/topic", { value: "Testing" }],
-      ["GET:/graph/channel:123/unread", { value: 5 }],
-      ["GET:/graph/channel:123/pending_directed", { value: 2 }],
-      ["GET:/graph/channel:123/alice_role", { value: "member" }],
+      ["GET:/graph/channel%3Atelegram%3A123/display_name", { value: "Test Chat" }],
+      ["GET:/graph/channel%3Atelegram%3A123/chat_type", { value: "supergroup" }],
+      ["GET:/graph/channel%3Atelegram%3A123/topic", { value: "Testing" }],
+      ["GET:/graph/channel%3Atelegram%3A123/unread", { value: 5 }],
+      ["GET:/graph/channel%3Atelegram%3A123/pending_directed", { value: 2 }],
+      ["GET:/graph/channel%3Atelegram%3A123/alice_role", { value: "member" }],
     ]);
     const ctx = makeFakeContext(responses, new FakeOutput());
 
@@ -894,6 +933,33 @@ describe("whoisCommand", () => {
     expect(result.output).toContain("Test Chat");
     expect(result.output).toContain("supergroup");
     expect(result.output).toContain("Unread: 5");
+  });
+
+  it("returns chat info for stable non-Telegram targets", async () => {
+    const responses = new Map([
+      ["GET:/graph/channel%3Adiscord%3Aguild-1%2Fthread-2/display_name", { value: "Guild Thread" }],
+      ["GET:/graph/channel%3Adiscord%3Aguild-1%2Fthread-2/chat_type", { value: "thread" }],
+      ["GET:/graph/channel%3Adiscord%3Aguild-1%2Fthread-2/topic", { value: "Testing Discord" }],
+      ["GET:/graph/channel%3Adiscord%3Aguild-1%2Fthread-2/unread", { value: 3 }],
+      ["GET:/graph/channel%3Adiscord%3Aguild-1%2Fthread-2/pending_directed", { value: 1 }],
+      ["GET:/graph/channel%3Adiscord%3Aguild-1%2Fthread-2/alice_role", { value: "member" }],
+    ]);
+    const ctx = makeFakeContext(responses, new FakeOutput(), async () => {
+      throw new Error("numeric resolver should not be called");
+    });
+
+    const result = await whoisCommand(ctx, {
+      in: "channel:discord:guild-1/thread-2",
+      target: undefined,
+    });
+
+    expect(result.output).toContain("Guild Thread");
+    expect(result.output).toContain("Testing Discord");
+    expect(result.rawResult).toMatchObject({
+      chatId: "channel:discord:guild-1/thread-2",
+      unread: 3,
+      pendingDirected: 1,
+    });
   });
 
   it("handles string target (citty may return single string)", async () => {
@@ -962,12 +1028,12 @@ describe("whoisCommand", () => {
 
   it("returns rawResult with json flag", async () => {
     const responses = new Map([
-      ["GET:/graph/channel:123/display_name", { value: "Test Chat" }],
-      ["GET:/graph/channel:123/chat_type", { value: "supergroup" }],
-      ["GET:/graph/channel:123/topic", null],
-      ["GET:/graph/channel:123/unread", { value: 0 }],
-      ["GET:/graph/channel:123/pending_directed", { value: 0 }],
-      ["GET:/graph/channel:123/alice_role", null],
+      ["GET:/graph/channel%3Atelegram%3A123/display_name", { value: "Test Chat" }],
+      ["GET:/graph/channel%3Atelegram%3A123/chat_type", { value: "supergroup" }],
+      ["GET:/graph/channel%3Atelegram%3A123/topic", null],
+      ["GET:/graph/channel%3Atelegram%3A123/unread", { value: 0 }],
+      ["GET:/graph/channel%3Atelegram%3A123/pending_directed", { value: 0 }],
+      ["GET:/graph/channel%3Atelegram%3A123/alice_role", null],
     ]);
     const ctx = makeFakeContext(responses, new FakeOutput());
 
@@ -986,5 +1052,28 @@ describe("whoisCommand", () => {
       pendingDirected: 0,
       role: null,
     });
+  });
+});
+
+describe("motdCommand", () => {
+  it("queries chat mood through stable channel id", async () => {
+    const responses = new Map([
+      [
+        'QUERY:/query/chat_mood:{"chatId":"channel:discord:guild-1/thread-2"}',
+        {
+          mood: "focused",
+        },
+      ],
+    ]);
+    const ctx = makeFakeContext(responses, new FakeOutput(), async () => {
+      throw new Error("numeric resolver should not be called");
+    });
+
+    const result = await motdCommand(ctx, {
+      in: "channel:discord:guild-1/thread-2",
+    });
+
+    expect(result.output).toContain("focused");
+    expect(result.rawResult).toEqual({ mood: "focused" });
   });
 });

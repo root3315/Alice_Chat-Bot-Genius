@@ -9,7 +9,13 @@ import { renderExecutionGrainReport } from "../src/diagnostics/execution-grain.j
 function writePromptLog(
   dir: string,
   name: string,
-  body: { script: string; afterward: string; hostContinued?: boolean; reason?: string; dcpMessages?: number },
+  body: {
+    script: string;
+    afterward: string;
+    hostContinued?: boolean;
+    reason?: string;
+    dcpMessages?: number;
+  },
 ): void {
   writeFileSync(
     join(dir, name),
@@ -73,16 +79,19 @@ describe("execution grain report", () => {
       afterward: "done",
     });
 
-    getDb().insert(actionLog).values({
-      tick: 10,
-      voice: "curiosity",
-      target: "channel:1",
-      actionType: "observe",
-      success: false,
-      tcAfterward: "done",
-      tcCommandLog: "Error: Engine API timeout",
-      tcHostContinuationTrace: JSON.stringify(["local_observation_followup"]),
-    }).run();
+    getDb()
+      .insert(actionLog)
+      .values({
+        tick: 10,
+        voice: "curiosity",
+        target: "channel:1",
+        actionType: "observe",
+        success: false,
+        tcAfterward: "done",
+        tcCommandLog: "Error: Engine API timeout",
+        tcHostContinuationTrace: JSON.stringify(["local_observation_followup"]),
+      })
+      .run();
 
     const raw = renderExecutionGrainReport({ promptLogsDir: dir, json: true });
     const parsed = JSON.parse(raw) as {

@@ -129,11 +129,23 @@ describe("ADR-64 I-1: Event-driven 唤醒", () => {
     buffer.onDirected = cb;
 
     // non-directed 不触发
-    buffer.push({ type: "new_message", channelId: "channel:1", tick: 1, isDirected: false });
+    buffer.push({
+      type: "new_message",
+      chatType: "group",
+      channelId: "channel:1",
+      tick: 1,
+      isDirected: false,
+    });
     expect(cb).not.toHaveBeenCalled();
 
     // directed 触发
-    buffer.push({ type: "new_message", channelId: "channel:1", tick: 2, isDirected: true });
+    buffer.push({
+      type: "new_message",
+      chatType: "group",
+      channelId: "channel:1",
+      tick: 2,
+      isDirected: true,
+    });
     expect(cb).toHaveBeenCalledTimes(1);
     expect(cb).toHaveBeenCalledWith(
       expect.objectContaining({ type: "new_message", isDirected: true }),
@@ -146,7 +158,13 @@ describe("ADR-64 I-1: Event-driven 唤醒", () => {
     buffer.onDirected = cb;
 
     // non-directed new_message 不触发
-    buffer.push({ type: "new_message", channelId: "channel:1", tick: 1, isDirected: false });
+    buffer.push({
+      type: "new_message",
+      chatType: "group",
+      channelId: "channel:1",
+      tick: 1,
+      isDirected: false,
+    });
     // reaction 没有 isDirected 字段 → 不触发
     buffer.push({ type: "reaction", channelId: "channel:1", tick: 2 });
     // read_history 没有 isDirected → 不触发
@@ -159,7 +177,13 @@ describe("ADR-64 I-1: Event-driven 唤醒", () => {
     const buffer = new EventBuffer();
     // 不设置 onDirected
     expect(() => {
-      buffer.push({ type: "new_message", channelId: "channel:1", tick: 1, isDirected: true });
+      buffer.push({
+        type: "new_message",
+        chatType: "group",
+        channelId: "channel:1",
+        tick: 1,
+        isDirected: true,
+      });
     }).not.toThrow();
   });
 
@@ -200,6 +224,7 @@ describe("ADR-64 I-1: Directed 门控绿灯", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:alice",
       isDirected: true,
       tick: 1,
@@ -218,6 +243,7 @@ describe("ADR-64 I-1: Directed 门控绿灯", () => {
       state.G.setDynamic("channel:alice", "unread", 5);
       state.buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "channel:alice",
         isDirected: true,
         tick: state.clock.tick + 1,
@@ -244,6 +270,7 @@ describe("ADR-64 I-1: Directed 门控绿灯", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:alice",
       isDirected: true,
       tick: 1,
@@ -268,6 +295,7 @@ describe("ADR-64 I-1: Directed 门控绿灯", () => {
 
     state.buffer.push({
       type: "new_message",
+      chatType: "group",
       channelId: "channel:group",
       isDirected: false,
       tick: 1,

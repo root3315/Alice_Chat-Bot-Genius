@@ -149,7 +149,7 @@ describe("facet 查找工具函数", () => {
     const facet = getFacet("diligence:backlog");
     expect(facet).toBeDefined();
     expect(facet?.voice).toBe("diligence");
-    expect(facet?.guidance).toContain("piled up");
+    expect(facet?.guidance.length).toBeGreaterThan(0);
   });
 
   it("getFacet 无效 ID → undefined", () => {

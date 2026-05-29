@@ -666,7 +666,7 @@ export function buildSituationBriefing(
     const chAttrs = G.getChannel(chId);
     // ADR-126: 使用 effectiveOutgoing（24h 半衰期衰减）
     const consecutive = effectiveOutgoing(G, chId, nowMs);
-    const chChatType = chAttrs.chat_type ?? "private";
+    const chChatType = chAttrs.chat_type;
     const threshold =
       chChatType === "group" || chChatType === "supergroup"
         ? BOMBING_THRESHOLD_GROUP

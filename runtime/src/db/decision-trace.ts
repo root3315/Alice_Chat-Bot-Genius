@@ -97,12 +97,9 @@ export function writeDecisionTrace(input: WriteDecisionTraceInput): number {
   return row.id;
 }
 
-export function listDecisionTraces(options: {
-  tick?: number;
-  actionLogId?: number;
-  phase?: DecisionTracePhase;
-  limit?: number;
-} = {}): DecisionTraceRecord[] {
+export function listDecisionTraces(
+  options: { tick?: number; actionLogId?: number; phase?: DecisionTracePhase; limit?: number } = {},
+): DecisionTraceRecord[] {
   const filters = [];
   if (options.tick !== undefined) filters.push(eq(decisionTrace.tick, options.tick));
   if (options.actionLogId !== undefined) {
@@ -125,6 +122,8 @@ export function summarizeDecisionTrace(record: DecisionTraceRecord): string {
   const action = record.payload.selectedAction
     ? ` action=${String(record.payload.selectedAction)}`
     : "";
-  const voice = record.payload.selectedVoice ? ` voice=${String(record.payload.selectedVoice)}` : "";
+  const voice = record.payload.selectedVoice
+    ? ` voice=${String(record.payload.selectedVoice)}`
+    : "";
   return `#${record.id} tick=${record.tick} phase=${record.phase}${subject} decision=${record.finalDecision}${voice}${action} reason=${record.reason}`;
 }

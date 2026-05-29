@@ -9,17 +9,22 @@ describe("Telegram canonical side-write", () => {
 
   it("writes canonical_events and still pushes to EventBuffer", () => {
     const buffer = new EventBuffer();
-    pushCanonicalPerturbation(buffer, {
-      type: "new_message",
-      tick: 1,
-      nowMs: 1000,
-      channelId: "channel:1",
-      contactId: "contact:1",
-      isDirected: true,
-      messageText: "hello",
-      senderName: "Mika",
-      contentType: "text",
-    }, "msg:1");
+    pushCanonicalPerturbation(
+      buffer,
+      {
+        type: "new_message",
+        chatType: "group",
+        tick: 1,
+        nowMs: 1000,
+        channelId: "channel:1",
+        contactId: "contact:1",
+        isDirected: true,
+        messageText: "hello",
+        senderName: "Mika",
+        contentType: "text",
+      },
+      "msg:1",
+    );
 
     expect(buffer.drain().events).toHaveLength(1);
     const rows = listCanonicalEvents();

@@ -7,6 +7,7 @@
  * @see docs/adr/172-information-visibility-layer.md
  * @see docs/adr/204-consciousness-stream/ §3.10 C10
  */
+import { readDisplayName, readTitle } from "./dynamic-props.js";
 import type { WorldModel } from "./world-model.js";
 
 /**
@@ -40,20 +41,20 @@ export function resolveDisplayName(G: WorldModel, displayName: string): string |
 
   // 3. 搜索 contact 节点
   for (const nodeId of G.getEntitiesByType("contact")) {
-    const dn = G.getDynamic(nodeId, "display_name");
-    if (dn != null && String(dn).toLowerCase() === lower) {
+    const dn = readDisplayName(G, nodeId);
+    if (dn != null && dn.toLowerCase() === lower) {
       return nodeId;
     }
   }
 
   // 4. 搜索 channel 节点（display_name 或 title）
   for (const nodeId of G.getEntitiesByType("channel")) {
-    const dn = G.getDynamic(nodeId, "display_name");
-    if (dn != null && String(dn).toLowerCase() === lower) {
+    const dn = readDisplayName(G, nodeId);
+    if (dn != null && dn.toLowerCase() === lower) {
       return nodeId;
     }
-    const title = G.getDynamic(nodeId, "title");
-    if (title != null && String(title).toLowerCase() === lower) {
+    const title = readTitle(G, nodeId);
+    if (title != null && title.toLowerCase() === lower) {
       return nodeId;
     }
   }
@@ -64,11 +65,11 @@ export function resolveDisplayName(G: WorldModel, displayName: string): string |
 export function safeDisplayName(G: WorldModel, nodeId: string): string {
   if (!G.has(nodeId)) return "(someone)";
 
-  const displayName = G.getDynamic(nodeId, "display_name");
-  if (displayName != null && displayName !== "") return String(displayName);
+  const displayName = readDisplayName(G, nodeId);
+  if (displayName != null && displayName !== "") return displayName;
 
-  const title = G.getDynamic(nodeId, "title");
-  if (title != null && title !== "") return String(title);
+  const title = readTitle(G, nodeId);
+  if (title != null && title !== "") return title;
 
   // 类型化泛称 — 永不泄漏 raw ID
   const nodeType = G.getNodeType(nodeId);

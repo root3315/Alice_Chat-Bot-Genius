@@ -4,13 +4,21 @@
  * 图：dirty-tracking 增量写回到 graph_nodes + graph_edges。
  * 人格：全量快照到 personality_snapshots（不变）。
  */
-import { desc, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { type BeliefDict, BeliefStore } from "../belief/store.js";
+import type { ChatType, DunbarTier } from "../graph/entities.js";
+import { requireChannelDefaultsInput } from "../graph/entity-defaults.js";
 import { WorldModel } from "../graph/world-model.js";
 import { createLogger } from "../utils/logger.js";
 import { PersonalityVector } from "../voices/personality.js";
 import { getDb, getSqlite } from "./connection.js";
-import { graphEdges, graphNodes, personalitySnapshots, tickLog } from "./schema.js";
+import {
+  canonicalEvents,
+  graphEdges,
+  graphNodes,
+  personalitySnapshots,
+  tickLog,
+} from "./schema.js";
 
 const log = createLogger("snapshot");
 
@@ -35,6 +43,50 @@ function deserializeAttrs(json: string): Record<string, unknown> {
 }
 
 const BELIEFS_KEY = "__beliefs__";
+
+function isChatType(value: unknown): value is ChatType {
+  return value === "private" || value === "group" || value === "supergroup" || value === "channel";
+}
+
+function defaultTierForChatType(chatType: ChatType): DunbarTier {
+  return chatType === "private" ? 50 : chatType === "channel" ? 500 : 150;
+}
+
+function latestCanonicalChatType(channelId: string): ChatType | null {
+  const db = getDb();
+  const row = db
+    .select({ payloadJson: canonicalEvents.payloadJson })
+    .from(canonicalEvents)
+    .where(and(eq(canonicalEvents.kind, "message"), eq(canonicalEvents.channelId, channelId)))
+    .orderBy(desc(canonicalEvents.tick), desc(canonicalEvents.id))
+    .limit(1)
+    .get();
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.payloadJson) as { chatType?: unknown };
+    return isChatType(parsed.chatType) ? parsed.chatType : null;
+  } catch {
+    return null;
+  }
+}
+
+function repairLoadedChannelAttrs(
+  id: string,
+  attrs: Record<string, unknown>,
+): Record<string, unknown> {
+  if (attrs.chat_type !== "private") return attrs;
+  if (!id.startsWith("channel:telegram:-")) return attrs;
+
+  const chatType = latestCanonicalChatType(id);
+  if (!chatType || chatType === "private") return attrs;
+
+  return {
+    ...attrs,
+    chat_type: chatType,
+    tier_contact:
+      Number(attrs.tier_contact) === 50 ? defaultTierForChatType(chatType) : attrs.tier_contact,
+  };
+}
 
 // -- 图写回 ------------------------------------------------------------------
 
@@ -171,7 +223,10 @@ export function loadGraphFromDb(): WorldModel | null {
         G.addContact(row.id, attrs as Record<string, unknown>);
         break;
       case "channel":
-        G.addChannel(row.id, attrs as Record<string, unknown>);
+        G.addChannel(
+          row.id,
+          requireChannelDefaultsInput(row.id, repairLoadedChannelAttrs(row.id, attrs)),
+        );
         break;
       case "thread":
         G.addThread(row.id, attrs as Record<string, unknown>);

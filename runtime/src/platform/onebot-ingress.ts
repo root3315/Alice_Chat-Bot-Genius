@@ -1,7 +1,10 @@
 import { writeCanonicalEventOnce } from "../db/canonical-event-store.js";
 import { getDb } from "../db/connection.js";
 import { messageLog } from "../db/schema.js";
-import type { CanonicalMessageEvent } from "../telegram/canonical-events.js";
+import {
+  type CanonicalMessageEvent,
+  perturbationFromCanonical,
+} from "../telegram/canonical-events.js";
 import type { EventBuffer } from "../telegram/events.js";
 import type { GraphPerturbation } from "../telegram/mapper.js";
 import { createLogger } from "../utils/logger.js";
@@ -35,26 +38,7 @@ export function ingestOneBotMessageEvent(
     source: "onebot",
     sourceId: mapped.sourceId,
   });
-  const perturbation: GraphPerturbation = {
-    type: "new_message",
-    tick: mapped.event.tick,
-    nowMs: mapped.event.occurredAtMs ?? undefined,
-    channelId: mapped.event.channelId ?? undefined,
-    contactId: mapped.event.contactId ?? undefined,
-    isDirected: mapped.event.directed,
-    isContinuation: mapped.event.continuation,
-    novelty: mapped.event.novelty ?? undefined,
-    displayName: mapped.event.displayName ?? undefined,
-    chatDisplayName: mapped.event.chatDisplayName ?? undefined,
-    chatType: mapped.event.chatType ?? undefined,
-    messageText: mapped.event.text ?? undefined,
-    senderName: mapped.event.senderName ?? undefined,
-    contentType: mapped.event.contentType,
-    senderIsBot: mapped.event.senderIsBot,
-    forwardFromChannelId: mapped.event.forwardFromChannelId ?? undefined,
-    forwardFromChannelName: mapped.event.forwardFromChannelName ?? undefined,
-    tmeLinks: mapped.event.tmeLinks.length > 0 ? mapped.event.tmeLinks : undefined,
-  };
+  const perturbation = perturbationFromCanonical(mapped.event);
   options.buffer?.push(perturbation);
 
   if (mapped.event.text || mapped.event.contentType !== "text") {

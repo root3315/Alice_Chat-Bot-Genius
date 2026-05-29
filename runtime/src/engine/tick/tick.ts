@@ -38,6 +38,7 @@ import { drainBoard, isTerminal, updateBoard } from "./blackboard.js";
 import type { TickCallResult, TickExecutionResult, TickFailureResult } from "./callLLM.js";
 import { buildTickPrompt, type TickPromptContext } from "./prompt-builder.js";
 import type {
+  ActualContinuationReason,
   Blackboard,
   IntraTickContinuationReason,
   TickOutcome,
@@ -90,7 +91,6 @@ function describeExecutionErrorCode(code: ScriptExecutionErrorCode): string {
 }
 
 interface IntraTickContinuationDecision {
-  continueInTick: boolean;
   reason: IntraTickContinuationReason;
 }
 
@@ -103,11 +103,11 @@ function deriveIntraTickContinuation(
   continuationTokens: ContinuationTokenSet,
 ): IntraTickContinuationDecision {
   if (hasCompletedSend(execResult)) {
-    return { continueInTick: false, reason: "none" };
+    return { reason: "none" };
   }
 
   if (execResult.errors.length > 0 || execResult.instructionErrors.length > 0) {
-    return { continueInTick: true, reason: "error_recovery" };
+    return { reason: "error_recovery" };
   }
 
   if (continuationTokens.actionableObservation) {
@@ -115,22 +115,28 @@ function deriveIntraTickContinuation(
       case "done":
       case "waiting_reply":
       case "watching":
-        return { continueInTick: true, reason: "local_observation_followup" };
+        return { reason: "local_observation_followup" };
       case "resting":
       case "fed_up":
       case "cooling_down":
-        return { continueInTick: false, reason: "none" };
+        return { reason: "none" };
     }
   }
 
   if (execResult.afterward === "watching") {
     if (continuationTokens.newObservation) {
-      return { continueInTick: true, reason: "local_observation_followup" };
+      return { reason: "local_observation_followup" };
     }
-    return { continueInTick: false, reason: "none" };
+    return { reason: "none" };
   }
 
-  return { continueInTick: false, reason: "none" };
+  return { reason: "none" };
+}
+
+function isActualContinuationReason(
+  reason: IntraTickContinuationReason,
+): reason is ActualContinuationReason {
+  return reason !== "none";
 }
 
 interface ContinuationTokenSet {
@@ -218,7 +224,7 @@ export async function tick(
   let outcome: TickOutcome = "terminal";
   let lastExecResult: TickExecutionResult | null = null;
   let episodeRound = 0;
-  const hostContinuationTrace: IntraTickContinuationReason[] = [];
+  const hostContinuationTrace: ActualContinuationReason[] = [];
 
   while (true) {
     // 检查终止条件
@@ -260,6 +266,7 @@ export async function tick(
         target: ctx.item.target,
         voice: ctx.item.action,
         round,
+        observation: ctx.item.observation,
         system,
         user,
         script: null,
@@ -275,6 +282,7 @@ export async function tick(
         target: ctx.item.target,
         voice: ctx.item.action,
         round,
+        observation: ctx.item.observation,
         system,
         user,
         script: null,
@@ -333,6 +341,7 @@ export async function tick(
       target: ctx.item.target,
       voice: ctx.item.action,
       round,
+      observation: ctx.item.observation,
       system,
       user,
       script: execResult.rawScript,
@@ -349,13 +358,13 @@ export async function tick(
         queryLogs: execResult.queryLogs,
         instructionErrors: execResult.instructionErrors,
         errors: execResult.errors,
-        hostContinuedInTick: continuation.continueInTick,
+        hostContinuedInTick: isActualContinuationReason(continuation.reason),
         hostContinuationReason: continuation.reason,
       },
     });
     deps.onStep?.({ round, system, user, script: execResult.rawScript });
 
-    if (continuation.continueInTick) {
+    if (isActualContinuationReason(continuation.reason)) {
       hostContinuationTrace.push(continuation.reason);
       episodeRound++;
       continue;

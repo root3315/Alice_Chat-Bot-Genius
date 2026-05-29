@@ -57,12 +57,13 @@ describe("applyPerturbation", () => {
       expect(G.getNeighbors("contact:10042", "joined")).toContain("channel:100");
     });
 
-    it("已存在的节点不重复创建", () => {
+    it("已存在且类型一致的节点不重复创建", () => {
       G.addChannel("channel:100", { chat_type: "group" });
       G.addContact("contact:10042", { display_name: "Bob" });
 
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         contactId: "contact:10042",
         tick: 1,
@@ -72,17 +73,49 @@ describe("applyPerturbation", () => {
       expect(G.getChannel("channel:100").chat_type).toBe("group"); // 保留原值
     });
 
+    it("真实消息事件会修正历史误标的 channel chat_type", () => {
+      G.addChannel("channel:telegram:-1003892656176", {
+        chat_type: "private",
+        tier_contact: 50,
+        display_name: "旧名字",
+      });
+
+      applyPerturbation(G, {
+        type: "new_message",
+        chatType: "supergroup",
+        channelId: "channel:telegram:-1003892656176",
+        chatDisplayName: "在花小茶馆",
+        tick: 1,
+      });
+
+      const channel = G.getChannel("channel:telegram:-1003892656176");
+      expect(channel.chat_type).toBe("supergroup");
+      expect(channel.tier_contact).toBe(150);
+      expect(channel.display_name).toBe("在花小茶馆");
+    });
+
     it("unread 累加", () => {
-      applyPerturbation(G, { type: "new_message", channelId: "channel:100", tick: 1 });
+      applyPerturbation(G, {
+        type: "new_message",
+        chatType: "group",
+        channelId: "channel:100",
+        tick: 1,
+      });
       expect(G.getChannel("channel:100").unread).toBe(1);
 
-      applyPerturbation(G, { type: "new_message", channelId: "channel:100", tick: 2 });
+      applyPerturbation(G, {
+        type: "new_message",
+        chatType: "group",
+        channelId: "channel:100",
+        tick: 2,
+      });
       expect(G.getChannel("channel:100").unread).toBe(2);
     });
 
     it("directed 消息更新 pending_directed 和 last_directed_ms", () => {
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         isDirected: true,
         tick: 5,
@@ -97,6 +130,7 @@ describe("applyPerturbation", () => {
     it("非 directed 消息不更新 pending_directed", () => {
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         isDirected: false,
         tick: 5,
@@ -107,6 +141,7 @@ describe("applyPerturbation", () => {
     it("bot directed 消息不递增 pending_directed（防 AI-AI 循环）", () => {
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         contactId: "contact:bot",
         isDirected: true,
@@ -153,9 +188,20 @@ describe("applyPerturbation", () => {
       expect(G.getChannel("channel:sg").tier_contact).toBe(150);
     });
 
+    it("chatType=channel 时 tier_contact=500", () => {
+      applyPerturbation(G, {
+        type: "new_message",
+        channelId: "channel:feed",
+        chatType: "channel",
+        tick: 1,
+      });
+      expect(G.getChannel("channel:feed").tier_contact).toBe(500);
+    });
+
     it("senderIsBot=true 标记 contact 和 channel", () => {
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         contactId: "contact:bot",
         senderIsBot: true,
@@ -170,6 +216,7 @@ describe("applyPerturbation", () => {
       // 先发 bot 消息
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         contactId: "contact:bot",
         senderIsBot: true,
@@ -180,6 +227,7 @@ describe("applyPerturbation", () => {
       // 非 bot 消息覆盖
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         contactId: "contact:human",
         tick: 2,
@@ -190,6 +238,7 @@ describe("applyPerturbation", () => {
     it("mentions_alice 检测（大小写不敏感）", () => {
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         messageText: "Hey ALICE, how are you?",
         tick: 1,
@@ -200,6 +249,7 @@ describe("applyPerturbation", () => {
     it("无 Alice 提及时不设置 mentions_alice", () => {
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         messageText: "Hello world",
         tick: 1,
@@ -211,6 +261,7 @@ describe("applyPerturbation", () => {
       G.addContact("contact:100");
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         contactId: "contact:100",
         tick: 10,
@@ -222,6 +273,7 @@ describe("applyPerturbation", () => {
 
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         contactId: "contact:100",
         tick: 20,
@@ -236,6 +288,7 @@ describe("applyPerturbation", () => {
       // nowMs=100_000_000: silence=(100_000_000-100_000)/1000=99900s > 86400 → 标记 returning
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         contactId: "contact:r",
         tick: 2600,
@@ -247,6 +300,7 @@ describe("applyPerturbation", () => {
     it("L3: contentType 标记", () => {
       applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:100",
         tick: 1,
         contentType: "sticker",
@@ -255,20 +309,31 @@ describe("applyPerturbation", () => {
     });
 
     it("默认 contentType 为 text", () => {
-      applyPerturbation(G, { type: "new_message", channelId: "channel:100", tick: 1 });
+      applyPerturbation(G, {
+        type: "new_message",
+        chatType: "group",
+        channelId: "channel:100",
+        tick: 1,
+      });
       expect(G.getChannel("channel:100").last_content_type).toBe("text");
     });
 
     it("返回 event.novelty 或默认 0.5", () => {
       const n1 = applyPerturbation(G, {
         type: "new_message",
+        chatType: "group",
         channelId: "channel:a",
         tick: 1,
         novelty: 0.8,
       });
       expect(n1).toBe(0.8);
 
-      const n2 = applyPerturbation(G, { type: "new_message", channelId: "channel:b", tick: 2 });
+      const n2 = applyPerturbation(G, {
+        type: "new_message",
+        chatType: "group",
+        channelId: "channel:b",
+        tick: 2,
+      });
       expect(n2).toBe(0.5);
     });
   });
@@ -277,7 +342,7 @@ describe("applyPerturbation", () => {
 
   describe("read_history", () => {
     it("清空 unread 但保留 pending_directed", () => {
-      G.addChannel("channel:100", { unread: 5, pending_directed: 2 });
+      G.addChannel("channel:100", { chat_type: "group", unread: 5, pending_directed: 2 });
       applyPerturbation(G, { type: "read_history", channelId: "channel:100", tick: 10 });
 
       expect(G.getChannel("channel:100").unread).toBe(0);
@@ -286,7 +351,7 @@ describe("applyPerturbation", () => {
     });
 
     it("清除 mentions_alice 标记", () => {
-      G.addChannel("channel:100");
+      G.addChannel("channel:100", { chat_type: "group" });
       G.setDynamic("channel:100", "mentions_alice", true);
 
       applyPerturbation(G, { type: "read_history", channelId: "channel:100", tick: 10 });
@@ -303,7 +368,7 @@ describe("applyPerturbation", () => {
     });
 
     it("返回 0.05", () => {
-      G.addChannel("channel:100");
+      G.addChannel("channel:100", { chat_type: "group" });
       const n = applyPerturbation(G, { type: "read_history", channelId: "channel:100", tick: 10 });
       expect(n).toBe(0.05);
     });
@@ -376,7 +441,8 @@ describe("applyPerturbation", () => {
       expect(G.getContact("contact:99").reaction_boost_ms).toBe(1000010);
     });
 
-    it("自动建 channel 并更新 last_reaction_ms", () => {
+    it("reaction 只更新已有 channel，不用 channelId 猜 chatType 自动建点", () => {
+      G.addChannel("channel:200", { chat_type: "group" });
       applyPerturbation(G, {
         type: "reaction",
         channelId: "channel:200",
@@ -386,6 +452,15 @@ describe("applyPerturbation", () => {
       });
       expect(G.has("channel:200")).toBe(true);
       expect(G.getChannel("channel:200").last_reaction_ms).toBe(1000015);
+
+      applyPerturbation(G, {
+        type: "reaction",
+        channelId: "channel:unknown",
+        tick: 16,
+        emoji: "\u{2764}",
+        nowMs: 1000016,
+      });
+      expect(G.has("channel:unknown")).toBe(false);
     });
 
     it("无 emoji 时不 push（仅 contact/channel 节点影响）", () => {
@@ -416,9 +491,9 @@ describe("applyPerturbation", () => {
   describe("default branch", () => {
     it("返回默认 novelty 0.05，不崩溃", () => {
       const n = applyPerturbation(G, {
-        type: "some_future_event" as GraphPerturbation["type"],
+        type: "some_future_event",
         tick: 1,
-      });
+      } as unknown as GraphPerturbation);
       expect(n).toBe(0.05);
     });
   });
@@ -434,11 +509,11 @@ describe("applyPerturbations", () => {
 
   it("返回平均 novelty", () => {
     const G = makeGraph();
-    G.addChannel("channel:1");
+    G.addChannel("channel:1", { chat_type: "private" });
     G.addContact("contact:100");
 
     const events: GraphPerturbation[] = [
-      { type: "new_message", channelId: "channel:1", tick: 1, novelty: 0.8 },
+      { type: "new_message", chatType: "private", channelId: "channel:1", tick: 1, novelty: 0.8 },
       { type: "user_status", contactId: "contact:100", tick: 1 }, // 0.1
     ];
     const avg = applyPerturbations(G, events);

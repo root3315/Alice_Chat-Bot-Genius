@@ -81,7 +81,9 @@ export function renderPrivate(snapshot: UserPromptSnapshot): string {
     listSectionBlock("Caution", snapshot.riskFlags),
     rawBlock(snapshot.episodeCarryOver),
     rawBlock(
-      snapshot.isDegraded ? "Running low — a reaction or a short line is enough." : undefined,
+      snapshot.isDegraded
+        ? "Running low — maybe one concrete thing still stands out. If not, quiet is fine."
+        : undefined,
     ),
     rawBlock(snapshot.openTopic ? `You were talking about: ${snapshot.openTopic}.` : undefined),
     whisperBlock(snapshot.whisper, snapshot.presence),

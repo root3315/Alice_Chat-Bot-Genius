@@ -8,8 +8,7 @@
  * @see docs/adr/241-thread-weight-decay.md
  */
 import { describe, expect, it } from "vitest";
-import { threadRelevance } from "../src/mods/threads.mod.js";
-import { threadsMod } from "../src/mods/threads.mod.js";
+import { threadRelevance, threadsMod } from "../src/mods/threads.mod.js";
 
 // -- 常量 --
 const RELEVANCE_THRESHOLD = 0.15;
@@ -76,26 +75,34 @@ describe("ADR-241: open_topics format() urgency 标签", () => {
   const fmt = getOpenTopicsFormat();
 
   it("dormant: relevance < RELEVANCE_THRESHOLD", () => {
-    const rows = [{ id: 1, title: "旧线程", status: "open", weight: "minor", pressure: 5.0, relevance: 0.1 }];
+    const rows = [
+      { id: 1, title: "旧线程", status: "open", weight: "minor", pressure: 5.0, relevance: 0.1 },
+    ];
     const result = fmt(rows);
     expect(result[0]).toContain("dormant");
   });
 
   it("low: relevance >= threshold, pressure <= 0.5", () => {
-    const rows = [{ id: 1, title: "正常线程", status: "open", weight: "minor", pressure: 0.3, relevance: 0.5 }];
+    const rows = [
+      { id: 1, title: "正常线程", status: "open", weight: "minor", pressure: 0.3, relevance: 0.5 },
+    ];
     const result = fmt(rows);
     expect(result[0]).toContain("low");
     expect(result[0]).not.toContain("dormant");
   });
 
   it("moderate: pressure > 0.5", () => {
-    const rows = [{ id: 1, title: "中等", status: "open", weight: "minor", pressure: 0.8, relevance: 0.5 }];
+    const rows = [
+      { id: 1, title: "中等", status: "open", weight: "minor", pressure: 0.8, relevance: 0.5 },
+    ];
     const result = fmt(rows);
     expect(result[0]).toContain("moderate");
   });
 
   it("high urgency: pressure > 1.0", () => {
-    const rows = [{ id: 1, title: "紧急", status: "open", weight: "major", pressure: 2.0, relevance: 2.0 }];
+    const rows = [
+      { id: 1, title: "紧急", status: "open", weight: "major", pressure: 2.0, relevance: 2.0 },
+    ];
     const result = fmt(rows);
     expect(result[0]).toContain("high urgency");
   });
@@ -105,7 +112,9 @@ describe("ADR-241: open_topics format() urgency 标签", () => {
   });
 
   it("边界: relevance 正好等于 RELEVANCE_THRESHOLD 不是 dormant", () => {
-    const rows = [{ id: 1, title: "边界", status: "open", weight: "minor", pressure: 0.3, relevance: 0.15 }];
+    const rows = [
+      { id: 1, title: "边界", status: "open", weight: "minor", pressure: 0.3, relevance: 0.15 },
+    ];
     const result = fmt(rows);
     expect(result[0]).toContain("low");
     expect(result[0]).not.toContain("dormant");
@@ -118,7 +127,9 @@ describe("ADR-241: open_topics format() urgency 标签", () => {
   });
 
   it("pressure 为 null 时不崩溃", () => {
-    const rows = [{ id: 1, title: "无数据", status: "open", weight: "minor", pressure: null, relevance: null }];
+    const rows = [
+      { id: 1, title: "无数据", status: "open", weight: "minor", pressure: null, relevance: null },
+    ];
     const result = fmt(rows);
     expect(result).toBeDefined();
     expect(result.length).toBe(1);

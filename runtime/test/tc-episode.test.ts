@@ -180,6 +180,7 @@ describe("structured block episode continuation", () => {
     expect(result.outcome).toBe("terminal");
     expect(result.episodeRounds).toBe(1);
     expect(result.tcMeta?.hostContinuationTrace).toEqual(["local_observation_followup"]);
+    expect(result.tcMeta?.hostContinuationTrace).not.toContain("none");
     expect(promptRounds).toEqual([0, 1]);
     expect(deps.callLLM).toHaveBeenCalledTimes(2);
   });

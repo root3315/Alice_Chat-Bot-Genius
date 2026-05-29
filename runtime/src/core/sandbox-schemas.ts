@@ -124,7 +124,10 @@ function trimTrailingPeriod(s: string): string {
  * Telegram 用户应看到真实换行，不应看到反斜杠+n。
  */
 function decodeEscapedNewlines(s: string): string {
-  return s.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+  return s
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\n");
 }
 
 /** 清洗 LLM 输出文本：剥离泄漏的注解标记 + 句尾句号 + 引号规范化 + 截断。 */

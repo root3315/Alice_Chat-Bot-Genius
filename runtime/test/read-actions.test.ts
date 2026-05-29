@@ -174,7 +174,7 @@ describe("strategy.mod contribute — capability-hints section 已移除（ADR-7
       dispatch: () => undefined,
     };
 
-    graph.addChannel("channel:test");
+    graph.addChannel("channel:test", { chat_type: "group" });
     graph.setDynamic("channel:test", "chat_type", "group");
     graph.addContact("contact:bot1");
     graph.setDynamic("contact:bot1", "is_bot", true);

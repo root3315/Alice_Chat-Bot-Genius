@@ -11,8 +11,12 @@
 
 import type { ChatTailResponse } from "../core/chat-tail-contract.js";
 import { sanitizeOutgoingText } from "../core/sandbox-schemas.js";
-import type { ExecutionObservation } from "../core/script-execution.js";
-import { telegramChannelId, telegramContactId } from "../graph/constants.js";
+import {
+  type CompletedAction,
+  completedActionControlLine,
+  type ExecutionObservation,
+} from "../core/script-execution.js";
+import { platformChannelId, telegramContactId } from "../graph/constants.js";
 import {
   parseTelegramNativeId,
   parseTransportMessageId,
@@ -30,7 +34,6 @@ import {
   type SendResult,
 } from "./cli-types.js";
 
-const ACTION_PREFIX = "__ALICE_ACTION__:";
 export const OBSERVATION_PREFIX = "__ALICE_OBSERVATION__:";
 
 interface TransportSendResult {
@@ -55,6 +58,23 @@ function telegramTarget(chatId: number): string {
 
 function telegramMessage(chatId: number, msgId: number): string {
   return stableTransportMessageId("telegram", String(chatId), msgId);
+}
+
+function transportChannelId(target: TransportCommandTarget): string {
+  if (target.ref.kind === "channel") return target.ref.stableId;
+  return platformChannelId(target.ref.platform, target.ref.nativeId);
+}
+
+function transportTargetLabel(target: TransportCommandTarget): string {
+  return target.chatId == null ? target.ref.stableId : `@${target.chatId}`;
+}
+
+function graphGetPath(channelId: string, attr: string): string {
+  return `/graph/${encodeURIComponent(channelId)}/${attr}`;
+}
+
+function actionLine(action: CompletedAction): string {
+  return completedActionControlLine(action);
 }
 
 function nativeMsgId(result: SendResult | TransportSendResult | null): number | undefined {
@@ -229,7 +249,12 @@ export async function sayCommand(ctx: CliContext, args: SayArgs): Promise<Comman
   const msgId = nativeMsgId(result);
   const action =
     msgId != null && target.chatId != null
-      ? `${ACTION_PREFIX}sent:chatId=${target.chatId}:msgId=${msgId}:message=${telegramMessage(target.chatId, msgId)}`
+      ? actionLine({
+          kind: "sent",
+          chatId: String(target.chatId),
+          msgId: String(msgId),
+          messageRef: telegramMessage(target.chatId, msgId),
+        })
       : undefined;
 
   // ADR-240: resolve thread after sending message
@@ -322,7 +347,12 @@ export async function replyCommand(ctx: CliContext, args: ReplyArgs): Promise<Co
   const msgId = nativeMsgId(result);
   const action =
     msgId != null && target.chatId != null
-      ? `${ACTION_PREFIX}sent:chatId=${target.chatId}:msgId=${msgId}:message=${telegramMessage(target.chatId, msgId)}`
+      ? actionLine({
+          kind: "sent",
+          chatId: String(target.chatId),
+          msgId: String(msgId),
+          messageRef: telegramMessage(target.chatId, msgId),
+        })
       : undefined;
 
   return {
@@ -378,7 +408,7 @@ export async function reactCommand(ctx: CliContext, args: ReactArgs): Promise<Co
   return {
     action:
       msgId != null && target.chatId != null
-        ? `${ACTION_PREFIX}react:chatId=${target.chatId}:msgId=${msgId}`
+        ? actionLine({ kind: "react", chatId: String(target.chatId), msgId: String(msgId) })
         : undefined,
     output: renderConfirm(`Reacted ${emoji} to`, msgId == null ? messageRef : `#${msgId}`),
     rawResult: {
@@ -416,7 +446,7 @@ export async function stickerCommand(ctx: CliContext, args: StickerArgs): Promis
 
   const action =
     result?.msgId != null
-      ? `${ACTION_PREFIX}sticker:chatId=${chatId}:msgId=${result.msgId}`
+      ? actionLine({ kind: "sticker", chatId: String(chatId), msgId: String(result.msgId) })
       : undefined;
 
   return {
@@ -461,7 +491,11 @@ export async function voiceCommand(ctx: CliContext, args: VoiceArgs): Promise<Co
 
   const action =
     result?.msgId != null
-      ? `${ACTION_PREFIX}${deliveredAs === "text" ? "sent" : "voice"}:chatId=${chatId}:msgId=${result.msgId}`
+      ? actionLine({
+          kind: deliveredAs === "text" ? "sent" : "voice",
+          chatId: String(chatId),
+          msgId: String(result.msgId),
+        })
       : undefined;
 
   return {
@@ -521,18 +555,20 @@ export interface TailArgs {
 export async function tailCommand(ctx: CliContext, args: TailArgs): Promise<CommandResult> {
   const die = makeDie(ctx.output, "irc");
 
-  const chatId = await ctx.resolveTarget(args.in);
+  const target = await resolveTransportTarget(ctx, args.in);
+  const channelId = transportChannelId(target);
+  const label = transportTargetLabel(target);
   const count = Number(args.count);
 
   if (!Number.isFinite(count)) die("tail count must be a number", "command_arg_format");
 
   const result = (await ctx.engine.get(
-    `/chat/${chatId}/tail?limit=${count}`,
+    `/chat/${encodeURIComponent(channelId)}/tail?limit=${count}`,
   )) as ChatTailResponse | null;
 
   // 标注来源（用于远程聊天）
   const isRemote = args.in != null;
-  const header = isRemote ? `[tail @${chatId}]\n` : "";
+  const header = isRemote ? `[tail ${label}]\n` : "";
 
   const messages = result?.messages ?? [];
   if (messages.length === 0) {
@@ -540,9 +576,15 @@ export async function tailCommand(ctx: CliContext, args: TailArgs): Promise<Comm
       observation: {
         kind: "empty",
         source: "irc.tail",
-        text: `no messages in chat ${chatId}`,
+        text: `no messages in chat ${label}`,
         enablesContinuation: false,
-        ...chatObservationMeta(ctx, chatId, { count }),
+        ...(target.chatId == null
+          ? {
+              currentChatId: ctx.currentChatId == null ? null : String(ctx.currentChatId),
+              targetChatId: channelId,
+              payload: { count },
+            }
+          : chatObservationMeta(ctx, target.chatId, { count })),
       },
       output: `${header}(no messages)`,
       rawResult: [],
@@ -564,7 +606,13 @@ export async function tailCommand(ctx: CliContext, args: TailArgs): Promise<Comm
       source: "irc.tail",
       text: header + lines.join("\n"),
       enablesContinuation: true,
-      ...chatObservationMeta(ctx, chatId, { count, messageCount: messages.length }),
+      ...(target.chatId == null
+        ? {
+            currentChatId: ctx.currentChatId == null ? null : String(ctx.currentChatId),
+            targetChatId: channelId,
+            payload: { count, messageCount: messages.length },
+          }
+        : chatObservationMeta(ctx, target.chatId, { count, messageCount: messages.length })),
     },
     output: header + lines.join("\n"),
     rawResult: messages,
@@ -625,14 +673,16 @@ export async function whoisCommand(ctx: CliContext, args: WhoisArgs): Promise<Co
   }
 
   // whois（无参数）→ 聊天室信息
-  const chatId = await ctx.resolveTarget(args.in);
+  const targetRef = await resolveTransportTarget(ctx, args.in);
+  const chatId = targetRef.chatId ?? targetRef.ref.stableId;
+  const channelId = transportChannelId(targetRef);
   const [name, chatType, topic, unread, pendingDirected, aliceRole] = await Promise.all([
-    ctx.engine.get(`/graph/channel:${chatId}/display_name`),
-    ctx.engine.get(`/graph/channel:${chatId}/chat_type`),
-    ctx.engine.get(`/graph/channel:${chatId}/topic`),
-    ctx.engine.get(`/graph/channel:${chatId}/unread`),
-    ctx.engine.get(`/graph/channel:${chatId}/pending_directed`),
-    ctx.engine.get(`/graph/channel:${chatId}/alice_role`),
+    ctx.engine.get(graphGetPath(channelId, "display_name")),
+    ctx.engine.get(graphGetPath(channelId, "chat_type")),
+    ctx.engine.get(graphGetPath(channelId, "topic")),
+    ctx.engine.get(graphGetPath(channelId, "unread")),
+    ctx.engine.get(graphGetPath(channelId, "pending_directed")),
+    ctx.engine.get(graphGetPath(channelId, "alice_role")),
   ]);
 
   const data = {
@@ -675,8 +725,8 @@ export interface MotdArgs {
 
 /** motd 命令逻辑。 */
 export async function motdCommand(ctx: CliContext, args: MotdArgs): Promise<CommandResult> {
-  const chatId = await ctx.resolveTarget(args.in);
-  const result = await ctx.engine.query("/query/chat_mood", { chatId: telegramChannelId(chatId) });
+  const target = await resolveTransportTarget(ctx, args.in);
+  const result = await ctx.engine.query("/query/chat_mood", { chatId: transportChannelId(target) });
 
   const output = renderHuman(result);
   return {

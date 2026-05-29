@@ -28,7 +28,7 @@ function createIntegrationDispatcher(
   const graph = new WorldModel();
   graph.addAgent("self", { mood_valence: 0, mood_arousal: 0.2 });
   graph.addContact("contact:1", { tier: 150 });
-  graph.addChannel("channel:test", {});
+  graph.addChannel("channel:test", { chat_type: "private" });
   const mods = [observerMod, relationshipsMod, diaryMod, schedulerMod, ...extraMods];
   const dispatcher = createAliceDispatcher({ graph, mods });
   dispatcher.startTick(100);

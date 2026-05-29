@@ -137,7 +137,7 @@ describe("computeUncertainty", () => {
   it("ADR-112 D3: 新 channel 抬高 env_uncertainty", () => {
     const G = emptyGraph();
     // 新加入的群：contact_recv_window=0 → novelty=1.0 → envUncertainty=1.0
-    G.addChannel("channel:new", { contact_recv_window: 0 });
+    G.addChannel("channel:new", { chat_type: "group", contact_recv_window: 0 });
     // 信息不确定性=0（事件充足），但环境不确定性=1.0
     expect(computeUncertainty([2, 2, 2], 10, 2.0, G)).toBeCloseTo(1.0, 1);
   });
@@ -145,7 +145,7 @@ describe("computeUncertainty", () => {
   it("ADR-112 D3: 老 channel 环境不确定性衰减到接近 0", () => {
     const G = emptyGraph();
     // 老群：50 条消息 → novelty=exp(-50/10)≈0.007
-    G.addChannel("channel:old", { contact_recv_window: 50 });
+    G.addChannel("channel:old", { chat_type: "group", contact_recv_window: 50 });
     const u = computeUncertainty([2, 2, 2], 10, 2.0, G);
     expect(u).toBeLessThan(0.05);
   });
@@ -316,7 +316,7 @@ describe("声部覆盖性证明", () => {
     // R_D = τ₁ + τ₄ + τ₅ + τ_P = 10+10+10+0 = 30
     const G = new WorldModel();
     G.tick = 100;
-    G.addChannel("e1");
+    G.addChannel("e1", { chat_type: "group" });
     const tensionMap = makeTensionMap([["e1", { tau1: 10, tau4: 10, tau5: 10 }]]);
     const pv = new PersonalityVector([0.4, 0.1, 0.1, 0.1, 0.3]);
     const { loudness } = computeLoudness(tensionMap, pv, G, 100, {
@@ -333,7 +333,7 @@ describe("声部覆盖性证明", () => {
     // R_C = τ₂ + τ₆ = 10+10 = 20
     const G = new WorldModel();
     G.tick = 100;
-    G.addChannel("e1");
+    G.addChannel("e1", { chat_type: "group" });
     const tensionMap = makeTensionMap([["e1", { tau2: 10, tau6: 10 }]]);
     const pv = new PersonalityVector([0.1, 0.4, 0.1, 0.1, 0.3]);
     const { loudness } = computeLoudness(tensionMap, pv, G, 100, {
@@ -350,7 +350,7 @@ describe("声部覆盖性证明", () => {
     // R_S = τ₃ = 20
     const G = new WorldModel();
     G.tick = 100;
-    G.addChannel("e1");
+    G.addChannel("e1", { chat_type: "group" });
     const tensionMap = makeTensionMap([["e1", { tau3: 20 }]]);
     const pv = new PersonalityVector([0.1, 0.1, 0.4, 0.1, 0.3]);
     const { loudness } = computeLoudness(tensionMap, pv, G, 100, {
@@ -368,7 +368,7 @@ describe("声部覆盖性证明", () => {
     // 其余声部: 全零 → R_v = 0
     const G = new WorldModel();
     G.tick = 100;
-    G.addChannel("e1");
+    G.addChannel("e1", { chat_type: "group" });
     const tensionMap = makeTensionMap([["e1", { tauRisk: 0.6 }]]);
     const pv = new PersonalityVector([0.1, 0.1, 0.1, 0.7]);
     const { loudness } = computeLoudness(tensionMap, pv, G, 100, {

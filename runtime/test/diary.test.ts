@@ -151,7 +151,7 @@ describe("effectiveSalience", () => {
 
 describe("ADR-225: Diary Mod — Working Memory", () => {
   describe("diary instruction", () => {
-    it("基本写入成功 — 分配新槽位", () => {
+    it("基本写入成功 — 无当前 target 时分配全局槽位", () => {
       const state = freshState();
       const ctx = makeMockCtx(100, state);
 
@@ -161,6 +161,17 @@ describe("ADR-225: Diary Mod — Working Memory", () => {
       expect(state.thoughts).toHaveLength(1);
       expect(state.thoughts[0].content).toBe("今天好累");
       expect(state.thoughts[0].about).toBeNull();
+    });
+
+    it("省略 about 时绑定当前 target，避免泛化残留进入全局池", () => {
+      const state = freshState();
+      const ctx = makeMockCtx(100, state, "contact:42");
+
+      const result = writeDiary(ctx as never, { content: "那句话还在心里刺刺的" });
+
+      expect(result).toMatchObject({ success: true, evolved: false });
+      expect(state.thoughts).toHaveLength(1);
+      expect(state.thoughts[0].about).toBe("contact:42");
     });
 
     it("带 about 参数写入", () => {
@@ -273,16 +284,16 @@ describe("ADR-225: Diary Mod — Working Memory", () => {
       expect(items).toHaveLength(0);
     });
 
-    it("有想法时注入 header（priority 75）", () => {
+    it("只注入当前 target 相关想法（priority 75）", () => {
       const state = freshState();
       state.thoughts.push({
         content: "今天好累",
-        about: null,
+        about: "contact:42",
         salience: 1.0,
         createdAt: NOW,
         updatedAt: NOW,
       });
-      const ctx = makeMockCtx(100, state);
+      const ctx = makeMockCtx(100, state, "contact:42");
 
       const items = contribute(ctx as never);
       expect(items).toHaveLength(1);
@@ -294,18 +305,47 @@ describe("ADR-225: Diary Mod — Working Memory", () => {
       expect(text).toContain("今天好累");
     });
 
+    it("global 想法不进入普通 prompt", () => {
+      const state = freshState();
+      state.thoughts.push({
+        content: "全局漂移想法",
+        about: null,
+        salience: 1.0,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      const ctx = makeMockCtx(100, state, "contact:42");
+
+      const items = contribute(ctx as never);
+      expect(items).toHaveLength(0);
+    });
+
+    it("无效 about 不会被误贴到当前 target", () => {
+      const state = freshState();
+      const ctx = makeMockCtx(100, state, "contact:42");
+
+      const result = writeDiary(ctx as never, {
+        content: "这条没有可靠归属",
+        about: "not-a-real-id",
+      }) as { success: boolean };
+
+      expect(result.success).toBe(true);
+      expect(state.thoughts[0].about).toBeNull();
+      expect(contribute(ctx as never)).toHaveLength(0);
+    });
+
     it("总量不超过 5 条", () => {
       const state = freshState();
       for (let i = 0; i < 7; i++) {
         state.thoughts.push({
           content: `想法${i}`,
-          about: null,
+          about: "contact:42",
           salience: 1.0,
           createdAt: NOW,
           updatedAt: NOW,
         });
       }
-      const ctx = makeMockCtx(100, state);
+      const ctx = makeMockCtx(100, state, "contact:42");
 
       const items = contribute(ctx as never);
       const text = items[0].lines.join("\n");
@@ -313,7 +353,7 @@ describe("ADR-225: Diary Mod — Working Memory", () => {
       expect(entryLines.length).toBeLessThanOrEqual(5);
     });
 
-    it("target 相关想法优先", () => {
+    it("不注入其他 target 的想法", () => {
       const state = freshState();
       state.thoughts.push({
         content: "全局想法",
@@ -333,10 +373,8 @@ describe("ADR-225: Diary Mod — Working Memory", () => {
 
       const items = contribute(ctx as never);
       const text = items[0].lines.join("\n");
-      // target 相关想法应该在前面
-      const davidIdx = text.indexOf("关于David的想法");
-      const globalIdx = text.indexOf("全局想法");
-      expect(davidIdx).toBeLessThan(globalIdx);
+      expect(text).toContain("关于David的想法");
+      expect(text).not.toContain("全局想法");
     });
   });
 

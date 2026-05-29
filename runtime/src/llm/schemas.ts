@@ -12,6 +12,7 @@
  * @see docs/adr/163-expand-instruction-bt-native-disclosure.md §16
  */
 import { z } from "zod";
+import { AFTERWARD_VALUES } from "./tools.js";
 
 // ── §16: Script-only Schema ────────────────────────────────────────
 //
@@ -165,7 +166,7 @@ export const TickStepSchema = z.object({
         "Commands: irc (Telegram I/O), self (perception/queries), engine (instructions).",
     ),
   afterward: z
-    .enum(["done", "waiting_reply", "watching", "resting", "fed_up", "cooling_down"])
+    .enum(AFTERWARD_VALUES)
     .describe(
       "What should happen to this chat after your turn. " +
         "done: finished — said what you wanted, nothing more to do (most common, use this by default). " +
@@ -174,10 +175,11 @@ export const TickStepSchema = z.object({
         "watching: after this turn, stay engaged with this chat because something is still unfolding " +
         "or you want to keep the thread warm. The host may continue immediately if fresh local " +
         "observations appear; otherwise it will keep watching this chat for the next turn. " +
-        "resting: you are tired, going to sleep, or leaving Telegram for a while — " +
-        "the host should stop ordinary follow-up until rest expires. " +
+        "resting: only when you are actually going to sleep or leaving Telegram for a while — " +
+        "the host should stop ordinary follow-up until rest expires. Do not use it for ordinary low energy. " +
         "fed_up: the room is draining or hostile — walk away (penalty: closes the conversation). " +
-        "cooling_down: the room is spammy or toxic — take a break (penalty: freezes this chat for ~30 min).",
+        "cooling_down: only when the current room is spammy or toxic and needs distance — " +
+        "take a break (penalty: freezes this chat for ~30 min).",
     ),
   // ADR-215: Episode residue — LLM 直接表达认知残留。
   // Optional: 只在有未消化的感受时填写。大多数情况下不填。

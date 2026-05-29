@@ -14,6 +14,7 @@ import {
   tickConversations,
   updateConversation,
 } from "../src/engine/conversation.js";
+import type { ChatType } from "../src/graph/entities.js";
 import { findActiveConversation } from "../src/graph/queries.js";
 import { WorldModel } from "../src/graph/world-model.js";
 import { computeAllPressures } from "../src/pressure/aggregate.js";
@@ -70,14 +71,14 @@ function directedMessage(
   channelId: string,
   contactId: string,
   tick: number,
-  chatType = "private",
+  chatType: ChatType = "private",
   nowMs?: number,
 ): GraphPerturbation {
   return { type: "new_message", channelId, contactId, isDirected: true, tick, chatType, nowMs };
 }
 
 function nonDirectedMessage(channelId: string, contactId: string, tick: number): GraphPerturbation {
-  return { type: "new_message", channelId, contactId, isDirected: false, tick };
+  return { type: "new_message", channelId, contactId, isDirected: false, tick, chatType: "group" };
 }
 
 /** 断言 detectConversationStart 返回非 null 的 convId。 */
@@ -272,6 +273,7 @@ describe("updateConversation", () => {
 
     updateConversation(G, convId, {
       type: "new_message",
+      chatType: "group",
       channelId: "channel:group",
       contactId: "carol",
       isDirected: true,

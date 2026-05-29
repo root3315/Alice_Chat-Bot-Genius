@@ -9,7 +9,44 @@
  */
 
 import type { ForwardRegistry } from "../engine/act/timeline.js";
+import type { ChatType } from "./entities.js";
+import { isChatType } from "./entity-defaults.js";
 import type { WorldModel } from "./world-model.js";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 基础资料
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 读取节点 display_name。错误形状或未设置时返回 undefined。 */
+export function readDisplayName(G: WorldModel, nodeId: string): string | undefined {
+  if (!G.has(nodeId)) return undefined;
+  const v = G.getDynamic(nodeId, "display_name");
+  return typeof v === "string" ? v : undefined;
+}
+
+/** 读取节点 title。错误形状或未设置时返回 undefined。 */
+export function readTitle(G: WorldModel, nodeId: string): string | undefined {
+  if (!G.has(nodeId)) return undefined;
+  const v = G.getDynamic(nodeId, "title");
+  return typeof v === "string" ? v : undefined;
+}
+
+/** 优先 display_name，其次 title，最后回退到节点 ID。 */
+export function readDisplayLabel(G: WorldModel, nodeId: string): string {
+  return readDisplayName(G, nodeId) ?? readTitle(G, nodeId) ?? nodeId;
+}
+
+/** 读取 channel chat_type。错误形状或未设置时返回 undefined。 */
+export function readChatType(G: WorldModel, nodeId: string): ChatType | undefined {
+  if (!G.has(nodeId)) return undefined;
+  const v = G.getDynamic(nodeId, "chat_type");
+  return isChatType(v) ? v : undefined;
+}
+
+/** 联系人是否是 bot。错误形状或未设置时返回 false。 */
+export function isBotContact(G: WorldModel, contactId: string): boolean {
+  return G.has(contactId) && G.getDynamic(contactId, "is_bot") === true;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 社交接收度（ADR-156）
@@ -37,8 +74,15 @@ export function readSocialReceptionMs(G: WorldModel, channelId: string): number 
 export function readForwardRegistry(G: WorldModel, channelId: string): ForwardRegistry {
   if (!G.has(channelId)) return {};
   const v = G.getDynamic(channelId, "forwarded_msgs");
-  if (v == null || typeof v !== "object" || Array.isArray(v)) return {};
+  if (!isForwardRegistry(v)) return {};
   return v as ForwardRegistry;
+}
+
+function isForwardRegistry(value: unknown): value is ForwardRegistry {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.values(value).every(
+    (targets) => Array.isArray(targets) && targets.every((target) => typeof target === "string"),
+  );
 }
 
 /** 记录一次转发：srcChannel 的 msgId 被转发到 targetName。 */
@@ -86,8 +130,11 @@ export function isBlockedByContact(G: WorldModel, contactId: string): boolean {
   return G.has(contactId) && G.getDynamic(contactId, "blocked_alice") === true;
 }
 
+/** 联系人是否拉黑了 Alice。read* 命名别名，便于调用侧统一读事实。 */
+export const readBlockedByContact = isBlockedByContact;
+
 // ═══════════════════════════════════════════════════════════════════════════
-// 分享时间
+// 最近动作 / 分享
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** 读取最近一次分享时间（epoch ms）。0 = 从未分享。 */
@@ -95,4 +142,43 @@ export function readLastSharedMs(G: WorldModel, nodeId: string): number {
   if (!G.has(nodeId)) return 0;
   const v = G.getDynamic(nodeId, "last_shared_ms");
   return typeof v === "number" ? v : 0;
+}
+
+/** 读取 Alice 最近一次在该节点行动的时间（epoch ms）。0 = 从未行动。 */
+export function readLastAliceActionMs(G: WorldModel, nodeId: string): number {
+  if (!G.has(nodeId)) return 0;
+  const v = G.getDynamic(nodeId, "last_alice_action_ms");
+  return typeof v === "number" ? v : 0;
+}
+
+/** 写入 Alice 最近一次在该节点行动的时间（epoch ms）。 */
+export function writeLastAliceActionMs(G: WorldModel, nodeId: string, nowMs: number): void {
+  if (!G.has(nodeId)) return;
+  G.setDynamic(nodeId, "last_alice_action_ms", nowMs);
+}
+
+/** 读取最近一次对外发出的文本。错误形状或未设置时返回空字符串。 */
+export function readLastOutgoingText(G: WorldModel, nodeId: string): string {
+  if (!G.has(nodeId)) return "";
+  const v = G.getDynamic(nodeId, "last_outgoing_text");
+  return typeof v === "string" ? v : "";
+}
+
+/** 写入最近一次对外发出的文本，沿用现有 150 字符投影上限。 */
+export function writeLastOutgoingText(G: WorldModel, nodeId: string, text: string): void {
+  if (!G.has(nodeId)) return;
+  G.setDynamic(nodeId, "last_outgoing_text", [...text].slice(0, 150).join(""));
+}
+
+/** 读取最近清空未读/提及状态的时间（epoch ms）。0 = 从未清空。 */
+export function readRecentlyClearedMs(G: WorldModel, nodeId: string): number {
+  if (!G.has(nodeId)) return 0;
+  const v = G.getDynamic(nodeId, "recently_cleared_ms");
+  return typeof v === "number" ? v : 0;
+}
+
+/** 写入最近清空未读/提及状态的时间（epoch ms）。 */
+export function writeRecentlyClearedMs(G: WorldModel, nodeId: string, nowMs: number): void {
+  if (!G.has(nodeId)) return;
+  G.setDynamic(nodeId, "recently_cleared_ms", nowMs);
 }

@@ -145,7 +145,7 @@ describe("v4 退化保证", () => {
 describe("ADR-23 全管线", () => {
   it("feel → flag_risk → 图属性正确写入", () => {
     const ctx = makeCtx({ outcomeHistory: [] });
-    ctx.graph.addChannel("channel:1");
+    ctx.graph.addChannel("channel:1", { chat_type: "private" });
 
     const moodImpl = observerMod.instructions?.feel.impl;
     moodImpl?.(ctx as unknown as ModContext, {

@@ -22,8 +22,9 @@ import {
 } from "../src/mods/observer/group-reception.js";
 
 const NOW_MS = Date.UTC(2026, 3, 25, 12, 0, 0);
-const GROUP_ID = "channel:-100255";
-const PRIVATE_ID = "channel:255";
+const GROUP_ID = "channel:telegram:-100255";
+const QQ_GROUP_ID = "channel:qq:100255";
+const PRIVATE_ID = "channel:telegram:255";
 
 let sqlite: InstanceType<typeof Database>;
 let db: ReturnType<typeof drizzle>;
@@ -240,6 +241,45 @@ describe("updateGroupReception ADR-255 evidence", () => {
     expect(readEmotionEpisodes(graph)).toHaveLength(0);
   });
 
+  it("non-Telegram group channel target does not depend on native id sign", () => {
+    const graph = addGraphChannel(QQ_GROUP_ID, "group");
+    const aliceLogId = insertAliceMessage({ chatId: QQ_GROUP_ID, msgId: 7043 });
+    const replyLogId = insertMessage({
+      chatId: QQ_GROUP_ID,
+      msgId: 7044,
+      replyToMsgId: 7043,
+      text: "thanks",
+      createdAtMs: NOW_MS - 50_000,
+    });
+
+    updateGroupReception({ graph, nowMs: NOW_MS });
+
+    const row = readOnlyEvidenceRow();
+    expect(row).toMatchObject({
+      channelId: QQ_GROUP_ID,
+      aliceMessageLogId: aliceLogId,
+      outcome: "warm_reply",
+    });
+    expect(JSON.parse(row.sourceMessageLogIdsJson)).toEqual([replyLogId]);
+  });
+
+  it("legacy channel:number ids are not transport channel targets", () => {
+    const legacyGroupId = "channel:-100255";
+    const graph = addGraphChannel(legacyGroupId);
+    insertAliceMessage({ chatId: legacyGroupId, msgId: 7041 });
+    insertMessage({
+      chatId: legacyGroupId,
+      msgId: 7042,
+      replyToMsgId: 7041,
+      text: "谢谢",
+      createdAtMs: NOW_MS - 50_000,
+    });
+
+    updateGroupReception({ graph, nowMs: NOW_MS });
+
+    expect(readEvidenceRows()).toHaveLength(0);
+  });
+
   it("direct follow-up alone is not warm authority", () => {
     const graph = addGraphChannel();
     graph.setDynamic(GROUP_ID, "social_reception", 0.25);
@@ -413,9 +453,9 @@ describe("updateGroupReception ADR-255 evidence", () => {
     expect(readSocialReception(graph, PRIVATE_ID)).toBe(0);
   });
 
-  it("positive channel id is excluded even when graph chat_type defaults to group", () => {
+  it("private chat_type is excluded even when target id kind is channel", () => {
     const graph = new WorldModel();
-    graph.addChannel(PRIVATE_ID);
+    graph.addChannel(PRIVATE_ID, { chat_type: "private" });
     insertAliceMessage({ chatId: PRIVATE_ID, msgId: 7601 });
     insertMessage({
       chatId: PRIVATE_ID,

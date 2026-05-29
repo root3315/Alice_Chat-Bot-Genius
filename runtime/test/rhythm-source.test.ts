@@ -7,9 +7,7 @@ import {
 describe("ADR-261 rhythm source hygiene", () => {
   it("normalizes positive Telegram sender IDs to contact IDs", () => {
     expect(normalizeContactSenderId("6571477950")).toBe("contact:telegram:6571477950");
-    expect(normalizeContactSenderId("contact:6571477950")).toBe(
-      "contact:telegram:6571477950",
-    );
+    expect(normalizeContactSenderId("contact:6571477950")).toBe("contact:telegram:6571477950");
     expect(normalizeContactSenderId("contact:telegram:6571477950")).toBe(
       "contact:telegram:6571477950",
     );

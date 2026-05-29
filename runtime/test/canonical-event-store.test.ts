@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { listCanonicalEvents, writeCanonicalEvent } from "../src/db/canonical-event-store.js";
 import { closeDb, initDb } from "../src/db/connection.js";
-import {
-  listCanonicalEvents,
-  writeCanonicalEvent,
-} from "../src/db/canonical-event-store.js";
 import { projectCanonicalEvents } from "../src/projection/event-projection.js";
 import type { CanonicalEvent } from "../src/telegram/canonical-events.js";
 
@@ -49,6 +46,8 @@ describe("canonical_events store", () => {
   it("filters by channel", () => {
     writeCanonicalEvent(event(1, "a", "channel:1"));
     writeCanonicalEvent(event(2, "b", "channel:2"));
-    expect(listCanonicalEvents({ channelId: "channel:2" }).map((row) => row.event.tick)).toEqual([2]);
+    expect(listCanonicalEvents({ channelId: "channel:2" }).map((row) => row.event.tick)).toEqual([
+      2,
+    ]);
   });
 });

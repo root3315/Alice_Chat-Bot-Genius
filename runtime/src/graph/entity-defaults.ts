@@ -18,6 +18,7 @@ import { THREAD_WEIGHTS } from "./constants.js";
 import type {
   AgentAttrs,
   ChannelAttrs,
+  ChatType,
   ContactAttrs,
   ConversationAttrs,
   FactAttrs,
@@ -63,14 +64,29 @@ export function contactDefaults(
  * 特殊逻辑：当 unread > 0 且无 EWMS 数据时，自动初始化 EWMS 累加器。
  * @see docs/adr/150-ewms-exact-unread-decay.md §D1
  */
-export function channelDefaults(
-  partial?: Partial<Omit<ChannelAttrs, "entity_type">>,
-): ChannelAttrs {
-  const unread = partial?.unread ?? 0;
+export type ChannelDefaultsInput = Partial<Omit<ChannelAttrs, "entity_type" | "chat_type">> &
+  Pick<ChannelAttrs, "chat_type">;
+
+export function isChatType(value: unknown): value is ChatType {
+  return value === "private" || value === "group" || value === "supergroup" || value === "channel";
+}
+
+export function requireChannelDefaultsInput(
+  id: string,
+  attrs: Record<string, unknown>,
+): ChannelDefaultsInput {
+  if (!isChatType(attrs.chat_type)) {
+    throw new Error(`channel ${id} is missing explicit chat_type`);
+  }
+  return attrs as ChannelDefaultsInput;
+}
+
+export function channelDefaults(partial: ChannelDefaultsInput): ChannelAttrs {
+  const unread = partial.unread ?? 0;
 
   // ADR-150: EWMS 与 unread 保持一致——初始化时视为所有消息刚到达。
-  let unread_ewms = partial?.unread_ewms;
-  let unread_ewms_ms = partial?.unread_ewms_ms;
+  let unread_ewms = partial.unread_ewms;
+  let unread_ewms_ms = partial.unread_ewms_ms;
   if (unread > 0 && unread_ewms == null) {
     unread_ewms = unread;
     unread_ewms_ms = Date.now();
@@ -79,7 +95,6 @@ export function channelDefaults(
   return {
     unread,
     tier_contact: 150,
-    chat_type: "group",
     pending_directed: 0,
     last_directed_ms: 0,
     last_outgoing_text: "",

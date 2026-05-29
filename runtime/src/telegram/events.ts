@@ -13,6 +13,7 @@ import { getDb } from "../db/connection.js";
 import { messageLog } from "../db/schema.js";
 import { terminateConversation } from "../engine/conversation.js";
 import { telegramChannelId, telegramContactId } from "../graph/constants.js";
+import type { ChatType } from "../graph/entities.js";
 import type { WorldModel } from "../graph/world-model.js";
 import { getCachedDescription, getCachedOcrText } from "../llm/media-cache.js";
 import { stableTransportMessageId } from "../platform/transport.js";
@@ -349,7 +350,7 @@ export function bindEvents(
     const senderIsBot = ctx.sender instanceof User && ctx.sender.isBot;
 
     // 提取 chatType 和 displayName 供 mapper 自动建节点
-    let chatType = "private";
+    let chatType: ChatType = "private";
     if (ctx.chat instanceof Chat) {
       const ct = ctx.chat.chatType;
       chatType = ct === "channel" ? "channel" : ct === "supergroup" ? "supergroup" : "group";
@@ -555,7 +556,7 @@ export function bindEvents(
     const isDirected = isPrivate || isReply || isMentioned;
 
     // chatType 和 displayName
-    let chatType = "private";
+    let chatType: ChatType = "private";
     if (ctx.chat instanceof Chat) {
       const ct = ctx.chat.chatType;
       chatType = ct === "channel" ? "channel" : ct === "supergroup" ? "supergroup" : "group";

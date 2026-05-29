@@ -13,6 +13,8 @@ import { ALICE_HOME, executeAliceSandboxProcess } from "../skills/container-runn
 import { buildInstalledSkillEnv } from "../skills/registry.js";
 import { createLogger } from "../utils/logger.js";
 import {
+  COMPLETED_ACTION_CONTROL_PREFIX,
+  decodeCompletedAction,
   type ExecutionObservation,
   isExecutionObservation,
   isScriptExecutionErrorCode,
@@ -23,7 +25,7 @@ import {
 import { validateScript } from "./script-validator.js";
 
 const log = createLogger("shell-executor");
-const ACTION_PREFIX = "__ALICE_ACTION__:";
+const ACTION_PREFIX = COMPLETED_ACTION_CONTROL_PREFIX;
 const ERROR_PREFIX = "__ALICE_ERROR__:";
 const ERROR_DETAIL_PREFIX = "__ALICE_ERROR_DETAIL__:";
 const OBSERVATION_PREFIX = "__ALICE_OBSERVATION__:";
@@ -201,6 +203,7 @@ export async function executeShellScript(
     queryLogs: [],
     observations: [],
     completedActions: [],
+    completedActionFacts: [],
     silenceReason: null,
   };
 
@@ -244,7 +247,13 @@ export async function executeShellScript(
 
   const visibleStdout = stdoutLines.filter((line) => {
     if (line.startsWith(ACTION_PREFIX)) {
-      result.completedActions.push(line.slice(ACTION_PREFIX.length));
+      const rawAction = line.slice(ACTION_PREFIX.length);
+      const action = decodeCompletedAction(rawAction);
+      result.completedActions.push(rawAction);
+      result.completedActionFacts?.push(action);
+      if (action.kind === "malformed") {
+        result.instructionErrors.push(`invalid __ALICE_ACTION__: ${action.reason}`);
+      }
       return false; // 过滤掉，不进入 visible logs
     }
     if (line.startsWith(OBSERVATION_PREFIX)) {

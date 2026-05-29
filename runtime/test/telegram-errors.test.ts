@@ -1,3 +1,4 @@
+import { tl } from "@mtcute/node";
 import { describe, expect, it } from "vitest";
 import {
   classifyTelegramActionFailure,
@@ -27,6 +28,12 @@ describe("TelegramActionError", () => {
 
   it("classifies mtcute local peer invalid as soft permanent", () => {
     expect(classifyTelegramActionFailure(new Error("The provided peer id is invalid."))).toBe(
+      "telegram_soft_permanent",
+    );
+  });
+
+  it("classifies admin-required channel sends as soft permanent", () => {
+    expect(classifyTelegramActionFailure(new tl.RpcError(400, "CHAT_ADMIN_REQUIRED"))).toBe(
       "telegram_soft_permanent",
     );
   });

@@ -33,6 +33,7 @@ import {
   EMOTIONAL_VIVID_THRESHOLD,
   ensureChannelId,
   ensureContactId,
+  extractNumericId,
   FACT_CONSOLIDATION_FACTOR,
   FACT_DECAY_D,
   FACT_FORGET_THRESHOLD,
@@ -40,6 +41,7 @@ import {
   factTypeInitialStability,
   resolveContactAndChannel,
   STABILITY_REINFORCE_FACTOR,
+  telegramContactId,
   tierLabel,
 } from "../graph/constants.js";
 import { resolveDisplayName, safeDisplayName } from "../graph/display.js";
@@ -153,10 +155,12 @@ export function getContactFacts(
  * @returns contact 节点 ID，或 null（无法解析时）。
  */
 function resolveContactId(graph: WorldModel, rawId: string): string | null {
-  if (!graph.has(rawId)) return null;
-  if (graph.getNodeType(rawId) === "contact") return rawId;
+  const telegramNativeId = extractNumericId(rawId);
+  const nodeId = telegramNativeId != null ? telegramContactId(telegramNativeId) : rawId;
+  if (!graph.has(nodeId)) return null;
+  if (graph.getNodeType(nodeId) === "contact") return nodeId;
   // 非 contact 类型 → 反向追溯 knows 边
-  const predecessors = graph.getPredecessors(rawId, "knows");
+  const predecessors = graph.getPredecessors(nodeId, "knows");
   return predecessors.find((pid) => graph.has(pid) && graph.getNodeType(pid) === "contact") ?? null;
 }
 
@@ -442,7 +446,10 @@ function normalizeContactProfileKeys(
   state: Pick<RelationshipsState, "contactProfiles">,
 ): void {
   for (const [rawKey, profile] of Object.entries({ ...state.contactProfiles })) {
-    const contactId = resolveDisplayName(graph, rawKey) ?? ensureContactId(rawKey);
+    const telegramNativeId = extractNumericId(rawKey);
+    const contactId =
+      resolveDisplayName(graph, rawKey) ??
+      (telegramNativeId != null ? telegramContactId(telegramNativeId) : ensureContactId(rawKey));
     if (!contactId || contactId === rawKey || !graph.has(contactId)) continue;
     if (graph.getNodeType(contactId) !== "contact") continue;
 
@@ -836,8 +843,12 @@ export const relationshipsMod = createMod<RelationshipsState>("relationships", {
     },
     impl(ctx, args) {
       const rawContactId = String(args.contactId);
+      const telegramNativeId = extractNumericId(rawContactId);
       const contactId =
-        resolveDisplayName(ctx.graph, rawContactId) ?? ensureContactId(rawContactId);
+        resolveDisplayName(ctx.graph, rawContactId) ??
+        (telegramNativeId != null
+          ? telegramContactId(telegramNativeId)
+          : ensureContactId(rawContactId));
       const hour = Number(args.hour);
 
       if (

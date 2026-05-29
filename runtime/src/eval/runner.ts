@@ -533,8 +533,7 @@ export async function runEvalSuite(
   }
 
   return {
-    model:
-      config.providerName ?? getLlmProviderByRoute(runtimeConfig, "eval")?.model ?? "unknown",
+    model: config.providerName ?? getLlmProviderByRoute(runtimeConfig, "eval")?.model ?? "unknown",
     timestamp: new Date().toISOString(),
     totalScenarios: filtered.length,
     runsPerScenario: config.runs,

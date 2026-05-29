@@ -64,9 +64,10 @@ function makeReq(skill?: string): IncomingMessage {
 }
 
 function makeChatReq(chatId: string, skill?: string, limit?: number): IncomingMessage {
+  const encodedChatId = encodeURIComponent(chatId);
   return {
     method: "GET",
-    url: `/chat/${chatId}/tail${limit ? `?limit=${limit}` : ""}`,
+    url: `/chat/${encodedChatId}/tail${limit ? `?limit=${limit}` : ""}`,
     headers: skill ? { "x-alice-skill": skill } : {},
   } as IncomingMessage;
 }
@@ -447,7 +448,7 @@ describe("Engine API route", () => {
     expect(dispatchInstruction).toHaveBeenCalledWith("feel", { target: "self" });
     expect(res.snapshot()).toEqual({
       statusCode: 200,
-      body: { ok: true, result: { accepted: "self" } },
+      body: { ok: true, kind: "instruction", result: { accepted: "self" } },
     });
   });
 
@@ -482,7 +483,7 @@ describe("Engine API route", () => {
     expect(dispatchInstruction).not.toHaveBeenCalled();
     expect(res.snapshot()).toEqual({
       statusCode: 200,
-      body: { ok: true, result: { level: "high" } },
+      body: { ok: true, kind: "query", result: { level: "high" } },
     });
   });
 
@@ -836,7 +837,7 @@ describe("Engine API route", () => {
     });
   });
 
-  it("transport send normalizes legacy Telegram channel refs", async () => {
+  it("transport send rejects legacy Telegram channel refs", async () => {
     const G = new WorldModel();
     G.addAgent("self");
     const telegramSend = vi.fn(async () => ({ msgId: 12 }));
@@ -859,14 +860,12 @@ describe("Engine API route", () => {
     await runBody(req, { target: "channel:7", text: "legacy" });
     await promise;
 
-    expect(telegramSend).toHaveBeenCalledWith({ chatId: 7, text: "legacy", replyTo: undefined });
+    expect(telegramSend).not.toHaveBeenCalled();
     expect(res.snapshot()).toEqual({
-      statusCode: 200,
+      statusCode: 400,
       body: {
-        platform: "telegram",
-        target: "channel:telegram:7",
-        messageId: "message:telegram:7:12",
-        nativeMessageId: 12,
+        code: "invalid_target_ref",
+        error: "invalid transport target ref",
       },
     });
   });
@@ -1123,11 +1122,12 @@ describe("Engine API route", () => {
     });
   });
 
-  it("resolve target returns stable refs and normalizes legacy graph ids", async () => {
+  it("resolve target returns stable refs and ignores legacy graph ids", async () => {
     const G = new WorldModel();
     G.addAgent("self");
-    G.addChannel("channel:telegram:42", { display_name: "stable-room" });
-    G.addChannel("channel:7", { display_name: "legacy-room" });
+    G.addChannel("channel:telegram:42", { chat_type: "private", display_name: "stable-room" });
+    G.addChannel("channel:7", { chat_type: "private", display_name: "legacy-room" });
+    G.addChannel("channel:qq:room", { chat_type: "group", display_name: "qq-room" });
     const deps = {
       config: {
         timezoneOffset: 8,
@@ -1145,6 +1145,12 @@ describe("Engine API route", () => {
     const stablePromise = routeRequest(stableReq, stableRes.res, deps);
     await runBody(stableReq, { target: "channel:telegram:42" });
     await stablePromise;
+
+    const qqRes = makeRes();
+    const qqReq = makeResolveTargetReq();
+    const qqPromise = routeRequest(qqReq, qqRes.res, deps);
+    await runBody(qqReq, { target: "qq-room" });
+    await qqPromise;
 
     const legacyRes = makeRes();
     const legacyReq = makeResolveTargetReq();
@@ -1165,16 +1171,24 @@ describe("Engine API route", () => {
         },
       },
     });
-    expect(legacyRes.snapshot()).toMatchObject({
+    expect(qqRes.snapshot()).toMatchObject({
       statusCode: 200,
       body: {
         ok: true,
         result: {
-          target: "channel:telegram:7",
-          platform: "telegram",
+          target: "channel:qq:room",
+          platform: "qq",
           kind: "channel",
-          nodeId: "channel:7",
+          nodeId: "channel:qq:room",
         },
+      },
+    });
+    expect(legacyRes.snapshot()).toEqual({
+      statusCode: 200,
+      body: {
+        ok: true,
+        result: null,
+        message: 'no target found with name "legacy-room"',
       },
     });
   });
@@ -1182,10 +1196,13 @@ describe("Engine API route", () => {
   it("resolve target hides targets outside target whitelist", async () => {
     const G = new WorldModel();
     G.addAgent("self");
-    G.addChannel("channel:telegram:42", { display_name: "allowed-room" });
-    G.addChannel("channel:telegram:43", { display_name: "blocked-room" });
+    G.addChannel("channel:telegram:42", { chat_type: "private", display_name: "allowed-room" });
+    G.addChannel("channel:telegram:43", { chat_type: "private", display_name: "blocked-room" });
     G.addContact("contact:telegram:44", { display_name: "blocked-person" });
-    G.addChannel("channel:telegram:44", { display_name: "blocked-person-private" });
+    G.addChannel("channel:telegram:44", {
+      chat_type: "private",
+      display_name: "blocked-person-private",
+    });
     const deps = {
       config: {
         timezoneOffset: 8,
@@ -1265,8 +1282,8 @@ describe("Engine API route", () => {
   it("resolve target returns typed ambiguity with platform-qualified candidates", async () => {
     const G = new WorldModel();
     G.addAgent("self");
-    G.addChannel("channel:telegram:42", { display_name: "guild" });
-    G.addChannel("channel:discord:abc", { display_name: "guild" });
+    G.addChannel("channel:telegram:42", { chat_type: "private", display_name: "guild" });
+    G.addChannel("channel:discord:abc", { chat_type: "group", display_name: "guild" });
     const deps = {
       config: {
         timezoneOffset: 8,
@@ -1331,7 +1348,7 @@ describe("Engine API route", () => {
   it("resolve target rejects bridge protocol names as platforms", async () => {
     const G = new WorldModel();
     G.addAgent("self");
-    G.addChannel("channel:qq:room", { display_name: "guild" });
+    G.addChannel("channel:qq:room", { chat_type: "group", display_name: "guild" });
     const deps = {
       config: {
         timezoneOffset: 8,
@@ -1655,14 +1672,18 @@ describe("Engine API route", () => {
     };
 
     const deniedRes = makeRes();
-    await routeRequest(makeChatReq("123", "calendar", 5), deniedRes.res, deps);
+    await routeRequest(makeChatReq("channel:telegram:123", "calendar", 5), deniedRes.res, deps);
     expect(deniedRes.snapshot()).toEqual({
       statusCode: 403,
       body: { error: 'skill "calendar" lacks capability "chat.read"' },
     });
 
     const allowedRes = makeRes();
-    await routeRequest(makeChatReq("123", "alice-system", 5), allowedRes.res, deps);
+    await routeRequest(
+      makeChatReq("channel:telegram:123", "alice-system", 5),
+      allowedRes.res,
+      deps,
+    );
     expect(tailSpy).toHaveBeenCalledWith("channel:telegram:123", 5);
     expect(allowedRes.snapshot()).toEqual({
       statusCode: 200,
@@ -1684,6 +1705,46 @@ describe("Engine API route", () => {
           },
         ],
       },
+    });
+
+    tailSpy.mockClear();
+    const legacyNumericRes = makeRes();
+    await routeRequest(makeChatReq("@123", "alice-system", 5), legacyNumericRes.res, deps);
+    expect(tailSpy).toHaveBeenCalledWith("channel:telegram:123", 5);
+    expect(legacyNumericRes.snapshot().statusCode).toBe(200);
+  });
+
+  it("graph route decodes platform channel ids containing path separators", async () => {
+    const G = new WorldModel();
+    G.addAgent("self");
+    G.addChannel("channel:discord:guild-1/thread-2", {
+      display_name: "Guild Thread",
+      chat_type: "group",
+    });
+    const deps = {
+      config: {
+        timezoneOffset: 8,
+        exaApiKey: "",
+        musicApiBaseUrl: "",
+        youtubeApiKey: "",
+      },
+      G,
+      strictCapabilities: false,
+      registry: {},
+    };
+
+    const res = makeRes();
+    const req = {
+      method: "GET",
+      url: `/graph/${encodeURIComponent("channel:discord:guild-1/thread-2")}/display_name`,
+      headers: {},
+    } as IncomingMessage;
+
+    await routeRequest(req, res.res, deps);
+
+    expect(res.snapshot()).toEqual({
+      statusCode: 200,
+      body: { value: "Guild Thread" },
     });
   });
 });

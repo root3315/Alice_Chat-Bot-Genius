@@ -117,7 +117,8 @@ export const mediaActions: TelegramActionDef[] = [
 
       ctx.dispatcher.dispatch("SEND_MESSAGE", {
         chatId: graphId,
-        text: `(voice: ${text.slice(0, 50)})`,
+        text,
+        mediaType: "voice",
       });
       ctx.dispatcher.dispatch("DECLARE_ACTION", { target: graphId });
 

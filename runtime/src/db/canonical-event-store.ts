@@ -7,9 +7,9 @@
  * @see docs/adr/248-dcp-reference-implementation-plan/README.md
  */
 import { and, asc, eq } from "drizzle-orm";
+import type { CanonicalEvent } from "../telegram/canonical-events.js";
 import { getDb } from "./connection.js";
 import { canonicalEvents } from "./schema.js";
-import type { CanonicalEvent } from "../telegram/canonical-events.js";
 
 export interface CanonicalEventSourceRef {
   source: string;
@@ -46,7 +46,10 @@ function mapRow(row: typeof canonicalEvents.$inferSelect): StoredCanonicalEvent 
   };
 }
 
-export function writeCanonicalEvent(event: CanonicalEvent, sourceRef?: CanonicalEventSourceRef): number {
+export function writeCanonicalEvent(
+  event: CanonicalEvent,
+  sourceRef?: CanonicalEventSourceRef,
+): number {
   const row = getDb()
     .insert(canonicalEvents)
     .values({
@@ -66,7 +69,9 @@ export function writeCanonicalEvent(event: CanonicalEvent, sourceRef?: Canonical
   return row.id;
 }
 
-export function listCanonicalEvents(options: { channelId?: string; limit?: number } = {}): StoredCanonicalEvent[] {
+export function listCanonicalEvents(
+  options: { channelId?: string; limit?: number } = {},
+): StoredCanonicalEvent[] {
   const query = getDb()
     .select()
     .from(canonicalEvents)
@@ -77,12 +82,17 @@ export function listCanonicalEvents(options: { channelId?: string; limit?: numbe
   return query.all().map(mapRow);
 }
 
-export function findCanonicalEventBySource(sourceRef: CanonicalEventSourceRef): StoredCanonicalEvent | null {
+export function findCanonicalEventBySource(
+  sourceRef: CanonicalEventSourceRef,
+): StoredCanonicalEvent | null {
   const row = getDb()
     .select()
     .from(canonicalEvents)
     .where(
-      and(eq(canonicalEvents.source, sourceRef.source), eq(canonicalEvents.sourceId, sourceRef.sourceId)),
+      and(
+        eq(canonicalEvents.source, sourceRef.source),
+        eq(canonicalEvents.sourceId, sourceRef.sourceId),
+      ),
     )
     .limit(1)
     .get();

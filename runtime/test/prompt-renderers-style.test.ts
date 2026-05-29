@@ -100,15 +100,27 @@ describe("prompt renderers style", () => {
   it("ADR-268 renders emotion style modulation without internal control terms", () => {
     const snapshot = {
       ...makeSnapshot("private_person"),
-      emotionProjection: "You are low on energy; shorter replies may feel more natural.",
-      emotionStyleHint: "This round fits a shorter, lower-effort reply.",
+      emotionProjection:
+        "Your energy is low. Let that make you quieter and more selective; do not make tiredness the topic unless someone directly asks.",
+      emotionStyleHint: "There is no need to prove yourself.",
     };
     const text = renderPrivate(snapshot);
 
-    expect(text).toContain("low on energy");
-    expect(text).toContain("shorter, lower-effort reply");
+    expect(text).toContain("energy is low");
+    expect(text).not.toContain("shorter, lower-effort reply");
+    expect(text).not.toContain("lower-effort");
     expect(text).not.toContain("styleBudget");
     expect(text).not.toContain("maxCharsMultiplier");
     expect(text).not.toContain("emotion_control");
+  });
+
+  it("does not render episode carry-over while typed continuity is not promoted", () => {
+    const text = renderPrivate({
+      ...makeSnapshot("private_person"),
+      episodeCarryOver: undefined,
+    });
+
+    expect(text).not.toContain("Previously:");
+    expect(text).not.toContain("Carry-over");
   });
 });

@@ -23,12 +23,13 @@ vi.mock("../src/llm/client.js", () => ({
 
 import type { Dispatcher } from "../src/core/dispatcher.js";
 import { closeDb, getDb, initDb } from "../src/db/connection.js";
-import { silenceLog, tickLog } from "../src/db/schema.js";
+import { candidateTrace, decisionTrace, silenceLog, tickLog } from "../src/db/schema.js";
 import { ActionQueue } from "../src/engine/action-queue.js";
 import { createDeliberationState } from "../src/engine/deliberation.js";
 import { type EvolveState, evolveTick } from "../src/engine/evolve.js";
 import { classifySilence, computeVoINull } from "../src/engine/silence.js";
 import type { ConversationState, TurnState } from "../src/graph/entities.js";
+import type { ChannelDefaultsInput } from "../src/graph/entity-defaults.js";
 import { WorldModel } from "../src/graph/world-model.js";
 import { AdaptiveKappa, computeAllPressures } from "../src/pressure/aggregate.js";
 import { createCuriosityHistory } from "../src/pressure/p6-curiosity.js";
@@ -70,14 +71,14 @@ function stubDispatcher(): Dispatcher {
 function buildScenarioState(overrides?: {
   startTick?: number;
   channelId?: string;
-  channelAttrs?: Record<string, unknown>;
+  channelAttrs?: Partial<ChannelDefaultsInput>;
   configOverrides?: Partial<Config>;
   addConversation?: { state: ConversationState; turnState: TurnState };
   personality?: [number, number, number, number];
   utcHour?: number;
   recentActions?: EvolveState["recentActions"];
   mode?: "patrol" | "conversation" | "consolidation";
-  extraChannels?: Array<{ id: string; attrs: Record<string, unknown> }>;
+  extraChannels?: Array<{ id: string; attrs: ChannelDefaultsInput }>;
 }): EvolveState {
   const config = loadConfig();
   config.idleThreshold = 999; // 禁用 idle 路径
@@ -99,7 +100,7 @@ function buildScenarioState(overrides?: {
   G.addAgent("self");
 
   // 主频道
-  const channelDefaults: Record<string, unknown> = {
+  const channelDefaults: ChannelDefaultsInput = {
     unread: 5,
     tier_contact: 5,
     chat_type: "private",
@@ -200,10 +201,9 @@ describe("ADR-115: Behavioral Invariants", () => {
     expect(state.queue.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("Rate cap silences when action rate exceeds limit", () => {
-    // 场景：大量最近行动 → classActionCount >= classCap → IAUS pre-filter 拦截所有候选。
-    // ADR-189: rate cap 已内化到 IAUS per-candidate pre-filter。
-    // 所有候选被 classRateCap 过滤 → IAUS 返回 null → directedCandidate fallback 无义务 → 静默。
+  it("Class rate pressure stays soft and traceable when action rate exceeds budget", () => {
+    // 场景：大量最近行动 → classActionCount >= classCap。
+    // ADR-274: class cadence 不再清空 IAUS 候选池，而是留下 U_class_pacing 诊断。
     const nowMs = Date.now();
     const channelId = "channel:100";
     const privateChannelId = "channel:pm";
@@ -241,20 +241,28 @@ describe("ADR-115: Behavioral Invariants", () => {
       extraChannels: [{ id: privateChannelId, attrs: { chat_type: "private", unread: 0 } }],
     });
 
-    // 跑 3 tick 确保 rate cap 拦截所有候选
+    // 跑 3 tick 确保旧 class cap 场景仍能留下可诊断候选
     for (let i = 0; i < 3; i++) {
       evolveTick(state);
     }
 
-    // 核心不变量：rate cap 超限时不入队
-    expect(state.queue.length).toBe(0);
-
-    // ADR-189: rate cap 作为 IAUS pre-filter 不再产生独立的 "rate_cap" silence reason。
-    // 所有候选被过滤后，silence reason 为 all_candidates_negative 或其他 post-IAUS 原因。
-    // 验证确实有 silence 记录。
     const db = getDb();
     const silences = db.select({ reason: silenceLog.reason }).from(silenceLog).all();
-    expect(silences.length).toBeGreaterThan(0);
+    expect(silences.some((row) => row.reason === "candidate_pool_empty:class_rate_cap")).toBe(
+      false,
+    );
+
+    const traces = db
+      .select({
+        reason: candidateTrace.silenceReason,
+        sampleStatus: candidateTrace.sampleStatus,
+        bottleneck: candidateTrace.bottleneck,
+        considerationsJson: candidateTrace.normalizedConsiderationsJson,
+      })
+      .from(candidateTrace)
+      .all();
+    expect(traces.length).toBeGreaterThan(0);
+    expect(traces.some((row) => row.considerationsJson.includes("U_class_pacing"))).toBe(true);
   });
 
   it("Consecutive outgoing cap silences in private chat", () => {
@@ -352,7 +360,7 @@ describe("ADR-115: Behavioral Invariants", () => {
     expect(levelHigh).not.toBe("L4_DEFERRED");
   });
 
-  it("Conversation continuation enables action via lambda discount", () => {
+  it("Conversation continuation stays on the IAUS path instead of directed_override", () => {
     // 核心机制：alice_turn 对话 → isConversationContinuation=true
     // → shouldBypassGates=true + effectiveLambda = λ × 0.5
     //
@@ -380,16 +388,13 @@ describe("ADR-115: Behavioral Invariants", () => {
       evolveTick(state);
     }
 
-    // 对话延续 → shouldBypassGates=true → gates 绕过
-    // effectiveLambda = λ × 0.5 → V 更容易为正 → 入队
-    // 若 V ≤ 0（即使折扣也不够），directed_override 兜底（因为 shouldBypassGates=true）
-    // 总之 alice_turn 对话延续必定产生行动
-    expect(state.queue.length).toBeGreaterThanOrEqual(1);
-
-    // 验证 tick_log 记录了 enqueue（不是 skip 或全 system1）
     const db = getDb();
+    const traces = db.select({ payloadJson: decisionTrace.payloadJson }).from(decisionTrace).all();
+    expect(traces.some((r) => r.payloadJson.includes("directed_override"))).toBe(false);
+
+    // continuation 仍可经 IAUS 正常入队；它只是不能被伪装成 directed 义务。
     const logs = db.select({ gateVerdict: tickLog.gateVerdict }).from(tickLog).all();
-    const hasEnqueue = logs.some((r) => r.gateVerdict === "enqueue");
+    const hasEnqueue = logs.some((r) => r.gateVerdict?.startsWith("enqueue"));
     expect(hasEnqueue).toBe(true);
   });
 
@@ -486,13 +491,13 @@ describe("ADR-115: Behavioral Invariants", () => {
 // ADR-189 蟑螂审计: 补盲测试
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("ADR-189 蟑螂审计: active_cooling + bypass 集成 (GAP-1, P0)", () => {
+describe("ADR-274: normal IAUS winners are not killed by post-winner active_cooling", () => {
   beforeEach(() => initDb(":memory:"));
   afterEach(() => closeDb());
 
-  it("(a) IAUS winner bypass=false + 高 classCounts → active_cooling 拦截", () => {
-    // 场景：无义务、无对话延续 → bypass=false。窗口内大量行动（分散到其他 target）
-    // → classCounts.private 高 → active_cooling 触发。
+  it("(a) IAUS winner bypass=false + 高 classCounts → 仍然入队", () => {
+    // 场景：无义务、无对话延续 → bypass=false。窗口内大量行动（分散到其他 target）。
+    // ADR-274: normal cadence 不能在 IAUS 选中赢家后再用 active_cooling 随机杀掉。
     // 注意：recentActions 不能全指向 channel:test，否则 per-target rate limit 先过滤。
     const nowMs = Date.now();
     const otherTargets = ["channel:o1", "channel:o2", "channel:o3", "channel:o4"];
@@ -511,6 +516,7 @@ describe("ADR-189 蟑螂审计: active_cooling + bypass 集成 (GAP-1, P0)", () 
         tier_contact: 5,
       },
       configOverrides: {
+        rateCap: { private: 100, group: 100, channel: 100, bot: 100 },
         socialCost: {
           ...loadConfig().socialCost,
           lambdaC: 1.0, // 极小 λ → exp(-20/1) ≈ 0 → 几乎 100% 拦截
@@ -525,12 +531,11 @@ describe("ADR-189 蟑螂审计: active_cooling + bypass 集成 (GAP-1, P0)", () 
       })),
     });
 
-    // 跑 5 tick——无 bypass 时 active_cooling 应多次拦截
+    // 跑 5 tick。旧行为会产生 active_cooling silence；新行为应该允许入队。
     for (let i = 0; i < 5; i++) {
       evolveTick(state);
     }
 
-    // 验证有 active_cooling silence 记录
     const db = getDb();
     const silences = db
       .select({
@@ -542,15 +547,12 @@ describe("ADR-189 蟑螂审计: active_cooling + bypass 集成 (GAP-1, P0)", () 
       .from(silenceLog)
       .all();
     const hasCooling = silences.some((r) => r.reason === "active_cooling");
-    expect(hasCooling).toBe(true);
-    const cooling = silences.find((r) => r.reason === "active_cooling");
-    expect(cooling?.deltaP).toEqual(expect.any(Number));
-    expect(cooling?.socialCost).toEqual(expect.any(Number));
-    expect(cooling?.netValue).toEqual(expect.any(Number));
+    expect(hasCooling).toBe(false);
+    expect(state.queue.length).toBeGreaterThan(0);
   });
 
-  it("(b) IAUS winner bypass=true(pending_directed) + 高 classCounts → bypass active_cooling → enqueue", () => {
-    // 场景：强义务(pending_directed) → bypass=true → active_cooling 被绕过。
+  it("(b) IAUS winner bypass=true(pending_directed) + 高 classCounts → enqueue", () => {
+    // 场景：强义务(pending_directed) → bypass=true。高 classCounts 不再有 post-winner 冷却可绕。
     const nowMs = Date.now();
     const recentActions = Array.from({ length: 20 }, (_, i) => ({
       tick: i + 1,
@@ -579,7 +581,6 @@ describe("ADR-189 蟑螂审计: active_cooling + bypass 集成 (GAP-1, P0)", () 
       extraChannels: [{ id: "channel:other", attrs: { chat_type: "private", unread: 0 } }],
     });
 
-    // bypass 应穿透 active_cooling
     for (let i = 0; i < 3; i++) {
       evolveTick(state);
     }
@@ -588,15 +589,13 @@ describe("ADR-189 蟑螂审计: active_cooling + bypass 集成 (GAP-1, P0)", () 
   });
 });
 
-describe("ADR-189 蟑螂审计: 全候选被 pre-filter → directedCandidate fallback (GAP-3, P1)", () => {
+describe("ADR-274: directed obligation stays on normal IAUS path under per-target density", () => {
   beforeEach(() => initDb(":memory:"));
   afterEach(() => closeDb());
 
-  it("所有候选被 per-target rate limit 过滤 → IAUS null → directedCandidate fallback enqueue", () => {
-    // 场景：只有一个频道，per-target rate limit 超限（6 actions >= perTargetCapBypass=5）
-    // → IAUS 所有候选被过滤（即使 bypass=true 也受 per-target rate limit 约束）。
-    // 但频道有 pending_directed → directedCandidate 找到义务 target → enqueue。
-    // 注意：directedCandidate 不受 per-target rate limit 约束（它是独立的 fallback 路径）。
+  it("高 per-target density + directed → IAUS 仍 enqueue，不依赖 directedCandidate fallback", () => {
+    // ADR-274: generic per-target rate limit 不再清空候选池。
+    // 这里的 6 条同 target recentActions 只降低 U_freshness；pending_directed 仍走 IAUS 主路径。
     const nowMs = Date.now();
     const recentActions = Array.from({ length: 6 }, (_, i) => ({
       tick: i + 1,
@@ -619,8 +618,22 @@ describe("ADR-189 蟑螂审计: 全候选被 pre-filter → directedCandidate fa
 
     evolveTick(state);
 
-    // 有义务 → directedCandidate 应该 enqueue（不被沉默吞没）
-    expect(state.queue.length).toBeGreaterThanOrEqual(1);
+    const db = getDb();
+    const silences = db.select({ reason: silenceLog.reason }).from(silenceLog).all();
+    expect(
+      silences.some((row) => row.reason === "candidate_pool_empty:per_target_rate_limit"),
+    ).toBe(false);
+    const traces = db
+      .select({
+        reason: candidateTrace.silenceReason,
+        considerationsJson: candidateTrace.normalizedConsiderationsJson,
+      })
+      .from(candidateTrace)
+      .all();
+    expect(traces.some((row) => row.reason === "candidate_pool_empty:per_target_rate_limit")).toBe(
+      false,
+    );
+    expect(traces.some((row) => row.considerationsJson.includes("U_freshness"))).toBe(true);
   });
 });
 
@@ -628,11 +641,9 @@ describe("ADR-189 蟑螂审计: directedCandidate + outgoing cap (GAP-4, P1)", (
   beforeEach(() => initDb(":memory:"));
   afterEach(() => closeDb());
 
-  it("(a) 强义务 + 高 outgoing → 跳过 cap → enqueue", () => {
-    // 场景：IAUS 所有候选被 per-target rate limit 过滤（6 actions >= perTargetCapBypass=5）
-    // → directedCandidate 找到 target。
+  it("(a) 强义务 + 高 outgoing → 跳过 anti-bombing 保险丝", () => {
     // 强义务（pending_directed=3，effectiveObligation > bypassGates 阈值 0.2）
-    // + consecutive_outgoing >= cap(4) → 但强义务跳过 outgoing cap → enqueue。
+    // + consecutive_outgoing >= cap(4) → bypass 穿透同 target anti-bombing cap。
     const nowMs = Date.now();
     const recentActions = Array.from({ length: 6 }, (_, i) => ({
       tick: i + 1,
@@ -650,20 +661,26 @@ describe("ADR-189 蟑螂审计: directedCandidate + outgoing cap (GAP-4, P1)", (
         last_directed_ms: nowMs - 3000, // 新鲜义务
         consecutive_outgoing: 5, // > outgoingCapPrivate=4
       },
+      configOverrides: {
+        iausDeterministic: true,
+      },
       recentActions,
       utcHour: 14,
     });
 
     evolveTick(state);
 
-    // 强义务跳过 outgoing cap → enqueue
-    expect(state.queue.length).toBeGreaterThanOrEqual(1);
+    // 强义务跳过 outgoing cap；是否最终入队还可能受 VoI / API floor 等非保险丝机制影响。
+    const db = getDb();
+    const silences = db.select({ reason: silenceLog.reason }).from(silenceLog).all();
+    expect(
+      silences.some((row) => row.reason === "candidate_pool_empty:consecutive_outgoing_cap"),
+    ).toBe(false);
   });
 
-  it("(b) 弱义务(continuation only) + 高 outgoing → cap 拦截 → silence", () => {
-    // 场景：IAUS 所有候选被 per-target rate limit 过滤（6 actions >= perTargetCapBypass=5）
-    // → directedCandidate 找到 target（alice_turn 对话延续，bestObligation ≈ 0.01）。
-    // 弱义务 + consecutive_outgoing >= cap(4) → cap 拦截 → silence。
+  it("(b) weak continuation + 高 outgoing → anti-bombing 仍可硬拦截", () => {
+    // 弱 continuation 还不是 W4 typed continuity；高 outgoing 下同 target anti-bombing
+    // 仍是硬不变量，不能把它伪装成已受保护的深聊连续性。
     const nowMs = Date.now();
     const recentActions = Array.from({ length: 6 }, (_, i) => ({
       tick: i + 1,
@@ -682,6 +699,9 @@ describe("ADR-189 蟑螂审计: directedCandidate + outgoing cap (GAP-4, P1)", (
         consecutive_outgoing: 5, // > outgoingCapPrivate=4
       },
       addConversation: { state: "active", turnState: "alice_turn" },
+      configOverrides: {
+        iausDeterministic: true,
+      },
       recentActions,
       utcHour: 14,
     });
@@ -690,8 +710,12 @@ describe("ADR-189 蟑螂审计: directedCandidate + outgoing cap (GAP-4, P1)", (
       evolveTick(state);
     }
 
-    // 弱义务被 outgoing cap 拦截 → 不入队
     expect(state.queue.length).toBe(0);
+    const db = getDb();
+    const silences = db.select({ reason: silenceLog.reason }).from(silenceLog).all();
+    expect(
+      silences.some((row) => row.reason === "candidate_pool_empty:consecutive_outgoing_cap"),
+    ).toBe(true);
   });
 });
 
@@ -701,12 +725,7 @@ describe("ADR-189 蟑螂审计: 多频道真实密度集成 (GAP-10, P0)", () =>
 
   it("10+ channels、~8 actions、lambdaC=6.0 → 入队率 > 0", () => {
     // 场景：模拟真实运行条件 — 混合 private/group channels，50 分钟窗口 ~8 actions。
-    // 验证 lambdaC=6.0 下 active_cooling 不过度拦截。
-    //
-    // 关键数值：
-    //   classCounts.private ≈ 4 → exp(-4/6.0) ≈ 0.51 → 每 tick 51% 通过 active_cooling
-    //   classCounts.group ≈ 4   → exp(-4/6.0) ≈ 0.51
-    //   10 ticks × 51% → P(至少 1 次 enqueue) > 99%
+    // ADR-274: lambdaC 不再通过 post-winner active_cooling 决定普通赢家生死。
     const nowMs = Date.now();
 
     // 8 个历史行动，分散到不同 target（不超过 per-target rate limit）
@@ -719,7 +738,7 @@ describe("ADR-189 蟑螂审计: 多频道真实密度集成 (GAP-10, P0)", () =>
     }));
 
     // 10+ channels（6 private + 4 group），部分有足够 unread 产生正压力
-    const extraChannels = [
+    const extraChannels: Array<{ id: string; attrs: ChannelDefaultsInput }> = [
       {
         id: "channel:p1",
         attrs: {

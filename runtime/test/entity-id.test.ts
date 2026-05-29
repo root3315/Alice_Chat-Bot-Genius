@@ -29,8 +29,7 @@ describe("ensureChannelId", () => {
   it("channel:qq: 透传", () => expect(ensureChannelId("channel:qq:abc")).toBe("channel:qq:abc"));
   it("contact:qq: → channel:qq:", () =>
     expect(ensureChannelId("contact:qq:abc")).toBe("channel:qq:abc"));
-  it("纯数字 → channel:telegram:", () =>
-    expect(ensureChannelId("789")).toBe("channel:telegram:789"));
+  it("裸数字不默认推断 Telegram channel", () => expect(ensureChannelId("789")).toBeNull());
   it("旧 channel:123 不再兼容", () => expect(ensureChannelId("channel:123")).toBeNull());
   it("非法 → null", () => expect(ensureChannelId("abc")).toBeNull());
   it("空串 → null", () => expect(ensureChannelId("")).toBeNull());
@@ -41,8 +40,7 @@ describe("ensureContactId", () => {
     expect(ensureContactId("contact:telegram:123")).toBe("contact:telegram:123"));
   it("channel:telegram: → contact:telegram:", () =>
     expect(ensureContactId("channel:telegram:456")).toBe("contact:telegram:456"));
-  it("纯数字 → contact:telegram:", () =>
-    expect(ensureContactId("789")).toBe("contact:telegram:789"));
+  it("裸数字不默认推断 Telegram contact", () => expect(ensureContactId("789")).toBeNull());
   it("旧 contact:123 不再兼容", () => expect(ensureContactId("contact:123")).toBeNull());
   it("非法 → null", () => expect(ensureContactId("abc")).toBeNull());
 });

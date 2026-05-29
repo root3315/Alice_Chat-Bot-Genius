@@ -100,16 +100,15 @@ export function quickPressureEstimate(G: WorldModel, event: GraphPerturbation): 
     wTier =
       (DUNBAR_TIER_WEIGHT as Record<number, number>)[attrs.tier_contact as number] ??
       DUNBAR_TIER_WEIGHT[150];
-    const chatType = (attrs.chat_type as string) ?? "group";
-    wResponse = CHAT_TYPE_WEIGHTS[chatType]?.response ?? 1.0;
-    wAttention = CHAT_TYPE_WEIGHTS[chatType]?.attention ?? 1.0;
+    wResponse = CHAT_TYPE_WEIGHTS[attrs.chat_type].response;
+    wAttention = CHAT_TYPE_WEIGHTS[attrs.chat_type].attention;
   }
 
   if (event.isDirected) {
     return wTier * wResponse;
   }
 
-  if (event.isContinuation) {
+  if (event.type === "new_message" && event.isContinuation) {
     // ADR-222: continuation 权重 = directed × 0.67（保持旧 1/1.5 ≈ 0.67 的数值连续性）
     return wTier * wResponse * 0.67;
   }

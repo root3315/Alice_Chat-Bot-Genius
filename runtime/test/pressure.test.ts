@@ -928,7 +928,7 @@ describe("Laplacian 传播", () => {
     const G = new WorldModel();
     G.addContact("a");
     G.addContact("b");
-    G.addChannel("ch");
+    G.addChannel("ch", { chat_type: "group" });
     // a → b (social, ω=1.0)
     G.addRelation("a", "friend", "b");
     // a → ch (spatial, ω=0.5)
@@ -951,7 +951,7 @@ describe("Laplacian 传播", () => {
     const G = new WorldModel();
     G.tick = 100;
     G.addContact("a", { last_alice_action_ms: tickMs(100) });
-    G.addChannel("ch");
+    G.addChannel("ch", { chat_type: "group" });
     G.addRelation("a", "monitors", "ch");
 
     const local = { a: 10.0 };
@@ -965,7 +965,7 @@ describe("Laplacian 传播", () => {
     const G = new WorldModel();
     G.tick = 100;
     G.addContact("a");
-    G.addChannel("ch", { last_alice_action_ms: tickMs(100) });
+    G.addChannel("ch", { chat_type: "group", last_alice_action_ms: tickMs(100) });
     G.addRelation("a", "monitors", "ch");
 
     const local = { a: 10.0 };
@@ -980,7 +980,7 @@ describe("Laplacian 传播", () => {
     G.tick = 100; // 源端: 较旧 → factor 较高
     G.addContact("a", { last_alice_action_ms: tickMs(90) });
     // 目标端: 刚回应 → factor=0
-    G.addChannel("ch", { last_alice_action_ms: tickMs(100) });
+    G.addChannel("ch", { chat_type: "group", last_alice_action_ms: tickMs(100) });
     G.addRelation("a", "monitors", "ch");
 
     const local = { a: 10.0 };
@@ -996,7 +996,7 @@ describe("Laplacian 传播", () => {
     const G = new WorldModel();
     G.tick = 100;
     G.addContact("a");
-    G.addChannel("ch");
+    G.addChannel("ch", { chat_type: "group" });
     G.addRelation("a", "monitors", "ch");
 
     const local = { a: 10.0 };
@@ -1011,7 +1011,7 @@ describe("Laplacian 传播", () => {
     const G = new WorldModel();
     G.tick = 100;
     G.addContact("a");
-    G.addChannel("ch", { last_alice_action_ms: tickMs(90) });
+    G.addChannel("ch", { chat_type: "group", last_alice_action_ms: tickMs(90) });
     G.addRelation("a", "monitors", "ch");
 
     const local = { a: 10.0 };

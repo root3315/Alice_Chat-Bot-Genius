@@ -26,6 +26,10 @@ describe("logPromptSnapshot", () => {
       target: "channel:test",
       voice: "group",
       round: 0,
+      observation: {
+        candidateId: "candidate:42:group:channel:test",
+        enqueueId: "enqueue:42:group:channel:test",
+      },
       system: "sys",
       user: "usr",
       script: 'irc tail --count 8\n\nirc reply --ref 3390931 --text "我也是这么觉得"',
@@ -102,6 +106,9 @@ describe("logPromptSnapshot", () => {
     const written = String(fsMock.writeFileSync.mock.calls[0][1]);
 
     expect(written).toContain("- assistant turns: 2");
+    expect(written).toContain("| candidate_id | candidate:42:group:channel:test |");
+    expect(written).toContain("| enqueue_id | enqueue:42:group:channel:test |");
+    expect(written).toContain("| action_id | (none) |");
     expect(written).toContain("- bash calls: 2");
     expect(written).toContain("- signal calls: 1");
     expect(written).toContain("- host continued in tick: yes");

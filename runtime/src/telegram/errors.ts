@@ -52,6 +52,7 @@ export function classifyTelegramActionFailure(error: unknown): TelegramActionErr
     tl.RpcError.is(error, "PEER_ID_BLOCKED") ||
     tl.RpcError.is(error, "USER_PRIVACY_RESTRICTED") ||
     tl.RpcError.is(error, "CHAT_WRITE_FORBIDDEN") ||
+    tl.RpcError.is(error, "CHAT_ADMIN_REQUIRED") ||
     tl.RpcError.is(error, "CHAT_RESTRICTED")
   ) {
     return "telegram_soft_permanent";

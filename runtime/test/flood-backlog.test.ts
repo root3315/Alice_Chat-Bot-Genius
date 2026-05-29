@@ -25,12 +25,18 @@ describe("T1: EventBuffer directed 保留率", () => {
     const buffer = new EventBuffer(1000);
     // 500 条 regular
     for (let i = 0; i < 500; i++) {
-      buffer.push({ type: "new_message", channelId: `channel:${i % 10}`, tick: i });
+      buffer.push({
+        type: "new_message",
+        chatType: "group",
+        channelId: `channel:${i % 10}`,
+        tick: i,
+      });
     }
     // 5 条 directed
     for (let i = 0; i < 5; i++) {
       buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "channel:main",
         isDirected: true,
         tick: 500 + i,
@@ -47,6 +53,7 @@ describe("T1: EventBuffer directed 保留率", () => {
     for (let i = 0; i < 200; i++) {
       buffer.push({
         type: "new_message",
+        chatType: "group",
         channelId: "channel:main",
         isDirected: true,
         tick: i,
@@ -77,6 +84,7 @@ describe("T2: nowMs 时间戳矫正", () => {
     for (let i = 0; i < 100; i++) {
       events.push({
         type: "new_message",
+        chatType: "group",
         channelId,
         tick: i,
         nowMs: twoHoursAgo + i * 1000, // 2 小时前的消息，间隔 1s
@@ -106,6 +114,7 @@ describe("T2: nowMs 时间戳矫正", () => {
     for (let i = 0; i < 100; i++) {
       events.push({
         type: "new_message",
+        chatType: "group",
         channelId,
         tick: i,
         // 无 nowMs
@@ -232,7 +241,9 @@ describe("T6: 时钟偏差守卫", () => {
     G.addChannel(channelId, { chat_type: "private" });
 
     const oneHourAgo = Date.now() - 3600 * 1000;
-    applyPerturbations(G, [{ type: "new_message", channelId, tick: 1, nowMs: oneHourAgo }]);
+    applyPerturbations(G, [
+      { type: "new_message", chatType: "private", channelId, tick: 1, nowMs: oneHourAgo },
+    ]);
 
     const lastMs = Number(G.getChannel(channelId).last_incoming_ms ?? 0);
     // 应该使用 1 小时前的原始时间
@@ -244,7 +255,9 @@ describe("T6: 时钟偏差守卫", () => {
     const channelId = "channel:clock_neg";
     G.addChannel(channelId, { chat_type: "private" });
 
-    applyPerturbations(G, [{ type: "new_message", channelId, tick: 1, nowMs: -1 }]);
+    applyPerturbations(G, [
+      { type: "new_message", chatType: "private", channelId, tick: 1, nowMs: -1 },
+    ]);
 
     const lastMs = Number(G.getChannel(channelId).last_incoming_ms ?? 0);
     // 应该回退到 Date.now() 附近
@@ -257,7 +270,9 @@ describe("T6: 时钟偏差守卫", () => {
     G.addChannel(channelId, { chat_type: "private" });
 
     const futureMs = Date.now() + 2 * 60 * 1000;
-    applyPerturbations(G, [{ type: "new_message", channelId, tick: 1, nowMs: futureMs }]);
+    applyPerturbations(G, [
+      { type: "new_message", chatType: "private", channelId, tick: 1, nowMs: futureMs },
+    ]);
 
     const lastMs = Number(G.getChannel(channelId).last_incoming_ms ?? 0);
     // 应该回退到 Date.now() 附近（不是 2 分钟后）
@@ -307,6 +322,7 @@ describe("T8: EWMS 精确逐消息衰减", () => {
     for (let i = 0; i < 200; i++) {
       events.push({
         type: "new_message",
+        chatType: "group",
         channelId,
         tick: i,
         nowMs: twoHoursAgo + i * spacingMs,
@@ -340,7 +356,9 @@ describe("T8: EWMS 精确逐消息衰减", () => {
 
     // 灌入 10 条消息
     for (let i = 0; i < 10; i++) {
-      applyPerturbations(G, [{ type: "new_message", channelId, tick: i, nowMs: Date.now() }]);
+      applyPerturbations(G, [
+        { type: "new_message", chatType: "private", channelId, tick: i, nowMs: Date.now() },
+      ]);
     }
     expect(effectiveUnread(G, channelId, Date.now())).toBeGreaterThan(5);
 
@@ -367,7 +385,13 @@ describe("T9: Tonic/Phasic 注意力分解", () => {
     // 50 条消息，10 小时前到达
     for (let i = 0; i < 50; i++) {
       applyPerturbations(G, [
-        { type: "new_message", channelId, tick: i, nowMs: tenHoursAgo + i * 1000 },
+        {
+          type: "new_message",
+          chatType: "supergroup",
+          channelId,
+          tick: i,
+          nowMs: tenHoursAgo + i * 1000,
+        },
       ]);
     }
 
@@ -388,7 +412,13 @@ describe("T9: Tonic/Phasic 注意力分解", () => {
     // 3 条消息，刚刚到达
     for (let i = 0; i < 3; i++) {
       applyPerturbations(G, [
-        { type: "new_message", channelId, tick: i, nowMs: now - (2 - i) * 1000 },
+        {
+          type: "new_message",
+          chatType: "private",
+          channelId,
+          tick: i,
+          nowMs: now - (2 - i) * 1000,
+        },
       ]);
     }
 
@@ -409,7 +439,13 @@ describe("T9: Tonic/Phasic 注意力分解", () => {
     const fiveHoursAgo = now - 5 * 3600 * 1000;
     for (let i = 0; i < 30; i++) {
       applyPerturbations(G, [
-        { type: "new_message", channelId, tick: i, nowMs: fiveHoursAgo + i * 1000 },
+        {
+          type: "new_message",
+          chatType: "supergroup",
+          channelId,
+          tick: i,
+          nowMs: fiveHoursAgo + i * 1000,
+        },
       ]);
     }
 
@@ -430,7 +466,13 @@ describe("T9: Tonic/Phasic 注意力分解", () => {
     const sixHoursAgo = now - 6 * 3600 * 1000;
     for (let i = 0; i < 100; i++) {
       applyPerturbations(G, [
-        { type: "new_message", channelId, tick: i, nowMs: sixHoursAgo + i * 1000 },
+        {
+          type: "new_message",
+          chatType: "supergroup",
+          channelId,
+          tick: i,
+          nowMs: sixHoursAgo + i * 1000,
+        },
       ]);
     }
 

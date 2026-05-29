@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest";
 import {
   classifyChatType,
   countActionsByClass,
-  gateActiveCooling,
   gateAPIFloor,
   gateConversationAware,
   gateCrisisMode,
@@ -68,7 +67,9 @@ function addConversation(
 
 describe("gateIdleSelfStart", () => {
   it("idle 时间达到阈值 → act (使用传入的 selectedAction)", () => {
-    const v = gateIdleSelfStart(50, 50, "diligence", "channel:telegram:100", ["channel:telegram:100"]);
+    const v = gateIdleSelfStart(50, 50, "diligence", "channel:telegram:100", [
+      "channel:telegram:100",
+    ]);
     expect(v.type).toBe("act");
     if (v.type === "act") {
       expect(v.candidate.action).toBe("diligence");
@@ -78,18 +79,25 @@ describe("gateIdleSelfStart", () => {
   });
 
   it("idle 时间未达阈值 → pass", () => {
-    const v = gateIdleSelfStart(20, 50, "diligence", "channel:telegram:100", ["channel:telegram:100"]);
+    const v = gateIdleSelfStart(20, 50, "diligence", "channel:telegram:100", [
+      "channel:telegram:100",
+    ]);
     expect(v.type).toBe("pass");
   });
 
   it("刚好等于阈值 → act（>= 语义）", () => {
     // idleSinceActionS = 50，thresholdS = 50
-    const v = gateIdleSelfStart(50, 50, "curiosity", "channel:telegram:100", ["channel:telegram:100"]);
+    const v = gateIdleSelfStart(50, 50, "curiosity", "channel:telegram:100", [
+      "channel:telegram:100",
+    ]);
     expect(v.type).toBe("act");
   });
 
   it("target 为 null 时 focalEntities 为空数组", () => {
-    const v = gateIdleSelfStart(200, 50, "sociability", null, ["channel:telegram:100", "channel:telegram:200"]);
+    const v = gateIdleSelfStart(200, 50, "sociability", null, [
+      "channel:telegram:100",
+      "channel:telegram:200",
+    ]);
     expect(v.type).toBe("act");
     if (v.type === "act") {
       expect(v.candidate.target).toBeNull();
@@ -98,7 +106,9 @@ describe("gateIdleSelfStart", () => {
   });
 
   it("netValue、deltaP、socialCost 均为 0（idle 无价值判定）", () => {
-    const v = gateIdleSelfStart(200, 50, "caution", "channel:telegram:100", ["channel:telegram:100"]);
+    const v = gateIdleSelfStart(200, 50, "caution", "channel:telegram:100", [
+      "channel:telegram:100",
+    ]);
     if (v.type === "act") {
       expect(v.candidate.netValue).toBe(0);
       expect(v.candidate.deltaP).toBe(0);
@@ -197,55 +207,6 @@ describe("gateRateCap", () => {
 
   it("shouldBypassGates=true → 始终 pass（即使超限）", () => {
     const v = gateRateCap(999, 1, 0.8, true);
-    expect(v.type).toBe("pass");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// gateActiveCooling
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("gateActiveCooling", () => {
-  it("有 directed → 始终 pass", () => {
-    // 即使 recentActionsCount 很大，directed 直接通过
-    const v = gateActiveCooling(999, 1.0, true, 0.5, () => 0);
-    expect(v.type).toBe("pass");
-  });
-
-  it("无 directed 且 recentActionsCount = 0 → 必定 pass（exp(0)=1）", () => {
-    // actionProb = exp(-0/lambda) = exp(0) = 1 → rng() < 1 → 始终 pass
-    const v = gateActiveCooling(0, 3.0, false, 0.5, () => 0.99);
-    expect(v.type).toBe("pass");
-  });
-
-  it("无 directed 且 rng > actionProb → silent（确定性）", () => {
-    // actionProb = exp(-1000/3) ≈ 0，rng=0.01 > 0 → silent
-    const v = gateActiveCooling(1000, 3.0, false, 0.5, () => 0.01);
-    expect(v.type).toBe("silent");
-  });
-
-  it("silent 时返回 L2_ACTIVE_COOLING + apiValue", () => {
-    // rng=0.99 远大于 actionProb ≈ 0 → 确定性 silent
-    const v = gateActiveCooling(500, 1.0, false, 0.42, () => 0.99);
-    expect(v.type).toBe("silent");
-    if (v.type === "silent") {
-      expect(v.level).toBe("L2_ACTIVE_COOLING");
-      expect(v.reason).toBe("active_cooling");
-      expect(v.values?.apiValue).toBe(0.42);
-    }
-  });
-
-  it("rng < actionProb → pass（确定性）", () => {
-    // recentActionsCount=1, lambdaC=10 → actionProb = exp(-0.1) ≈ 0.905
-    // rng=0.5 < 0.905 → pass
-    const v = gateActiveCooling(1, 10.0, false, 0.5, () => 0.5);
-    expect(v.type).toBe("pass");
-  });
-
-  it("lambdaC 接近 0 时受 max(lambdaC, 0.01) 保护", () => {
-    // lambdaC = 0 → 实际使用 0.01，不会除以零
-    const v = gateActiveCooling(0, 0, false, 0.5, () => 0.5);
-    // recentActionsCount=0 → exp(0)=1 → pass
     expect(v.type).toBe("pass");
   });
 });

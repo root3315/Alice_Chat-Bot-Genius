@@ -68,8 +68,57 @@ describe("executeShellScript", () => {
     );
 
     expect(result.completedActions).toEqual(["send_message"]);
+    expect(result.completedActionFacts).toEqual([{ kind: "unknown", raw: "send_message" }]);
     expect(result.logs).toEqual(["visible"]);
     expect(result.errors).toEqual([]);
+  });
+
+  it("decodes ACTION_PREFIX lines into typed completed action facts at the shell boundary", async () => {
+    const result = await executeShellScript(
+      'printf "__ALICE_ACTION__:sent:chatId=123:msgId=789:message=message:telegram:123:789\\n"\nprintf "__ALICE_ACTION__:forwarded:from=-1001:to=-1002:msgId=42\\n"\nprintf "visible\\n"',
+      {},
+    );
+
+    expect(result.completedActions).toEqual([
+      "sent:chatId=123:msgId=789:message=message:telegram:123:789",
+      "forwarded:from=-1001:to=-1002:msgId=42",
+    ]);
+    expect(result.completedActionFacts).toEqual([
+      {
+        kind: "sent",
+        chatId: "123",
+        msgId: "789",
+        messageRef: "message:telegram:123:789",
+      },
+      { kind: "forwarded", fromChatId: "-1001", toChatId: "-1002", msgId: "42" },
+    ]);
+    expect(result.logs).toEqual(["visible"]);
+    expect(result.instructionErrors).toEqual([]);
+  });
+
+  it("decodes internal ACTION_PREFIX lines without treating them as Telegram delivery", async () => {
+    const result = await executeShellScript(
+      'printf "__ALICE_ACTION__:internal:command=feel\\n"\nprintf "visible\\n"',
+      {},
+    );
+
+    expect(result.completedActions).toEqual(["internal:command=feel"]);
+    expect(result.completedActionFacts).toEqual([{ kind: "internal", command: "feel" }]);
+    expect(result.logs).toEqual(["visible"]);
+    expect(result.instructionErrors).toEqual([]);
+  });
+
+  it("reports malformed ACTION_PREFIX lines as instruction errors", async () => {
+    const result = await executeShellScript(
+      'printf "__ALICE_ACTION__:sent:chatId=123\\n"\nprintf "visible\\n"',
+      {},
+    );
+
+    expect(result.completedActionFacts).toEqual([
+      { kind: "malformed", raw: "sent:chatId=123", reason: "missing msgId" },
+    ]);
+    expect(result.instructionErrors).toEqual(["invalid __ALICE_ACTION__: missing msgId"]);
+    expect(result.logs).toEqual(["visible"]);
   });
 
   it("captures ERROR_PREFIX lines as structured error codes", async () => {

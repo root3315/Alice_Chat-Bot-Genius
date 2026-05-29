@@ -71,10 +71,32 @@ describe("ADR-268 emotion state", () => {
   it("does not expose internal ids or scalar fields in normal prompt projection", () => {
     const state = deriveEmotionState([episode({ id: "secret-id" })], NOW);
     const projection = renderEmotionProjection(state);
-    expect(projection).toContain("stings");
+    expect(projection).toContain("刺刺的");
     expect(projection).not.toContain("secret-id");
     expect(projection).not.toContain("valence");
     expect(projection).not.toContain("emotion_kind");
+  });
+
+  it("projects high-tension emotions as small continuations instead of pure retreat", () => {
+    const projectionFor = (kind: EmotionKind) =>
+      renderEmotionProjection(
+        deriveEmotionState([episode({ id: kind, kind, intensity: 0.8 })], NOW),
+      );
+
+    expect(projectionFor("hurt")).toContain("想问问");
+    expect(projectionFor("touched")).toContain("好暖");
+    expect(projectionFor("uneasy")).toContain("不确定");
+    expect(projectionFor("annoyed")).toContain("刺到了");
+
+    const combined = [
+      projectionFor("hurt"),
+      projectionFor("touched"),
+      projectionFor("uneasy"),
+      projectionFor("annoyed"),
+    ].join("\n");
+    expect(combined).not.toContain("observing before leaning in");
+    expect(combined).not.toContain("Keep it brief");
+    expect(combined).not.toContain("do not need to prove yourself");
   });
 
   it("maps hurt and tired to bounded control modulation", () => {
@@ -137,6 +159,25 @@ describe("ADR-268 emotion state", () => {
     expect(flat.voiceBias.sociability).toBeLessThan(0);
     expect(flat.voiceBias.reflection).toBeGreaterThan(0);
     expect(flat.styleBudget.preferShort).toBe(true);
+  });
+
+  it("does not collapse ordinary tired or flat feelings into strong short-reply pressure", () => {
+    const patchFor = (kind: EmotionKind, intensity: number) =>
+      deriveEmotionControlPatch(
+        deriveEmotionState([episode({ id: `${kind}-${intensity}`, kind, intensity })], NOW),
+      );
+
+    const ordinaryTired = patchFor("tired", 0.3);
+    expect(ordinaryTired.styleBudget.preferShort).toBe(false);
+    expect(ordinaryTired.styleBudget.maxCharsMultiplier).toBeGreaterThanOrEqual(0.9);
+
+    const ordinaryFlat = patchFor("flat", 0.3);
+    expect(ordinaryFlat.styleBudget.preferShort).toBe(false);
+    expect(ordinaryFlat.styleBudget.maxCharsMultiplier).toBeGreaterThanOrEqual(0.9);
+
+    const strongTired = patchFor("tired", 0.8);
+    expect(strongTired.styleBudget.preferShort).toBe(true);
+    expect(strongTired.styleBudget.maxCharsMultiplier).toBeGreaterThanOrEqual(0.68);
   });
 
   it("records graph-backed episodes and derives current state", () => {
